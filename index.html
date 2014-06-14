@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Shaders</title>
+        <link rel="stylesheet" href="css/codemirror.css">
+        <link rel="stylesheet" href="css/theme/twilight.css">
+        <meta charset="utf-8">
+        <style>
+            body {
+                margin: 0px;
+                background-color: #000;
+                overflow: hidden;
+                color: white;
+            }
+            .editor {
+                float: left;
+                width: 600px;
+                padding: 5px;
+            }
+
+            h1 {
+                font-family: Monaco;
+                font-size: 14px;
+                padding-left: 5px;
+            }
+
+            .editor button {
+                float: right;
+            }
+
+            pre {
+                border: 1px solid #333;
+                padding: 5px;
+                margin: 5px;
+            }
+
+            .viewer {
+                float: right;
+                width:
+            }
+
+            .example {
+                display: none;
+            }
+
+            select {
+                float: right;
+            }
+
+        </style>
+    </head>
+    <body>
+        <!-- examples -->
+        <div class="example" id="example-1">
+            <div class="vert">
+varying vec3 vNormal;
+void main() {
+    vNormal = normal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+varying vec3 vNormal;
+void main() {
+    gl_FragColor = vec4(vNormal, 1.0);
+}
+            </div>
+        </div>
+        <div class="example" id="light-example">
+            <div class="vert">
+varying vec3 vNormal;
+void main() {
+    vNormal = normal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+//uniform vec3 directionalLightDirection;
+//uniform vec3 directionalLightColor;
+varying vec3 vNormal;
+void main() {
+    gl_FragColor = 2.0*vec4(vNormal, 1.0);
+}
+            </div>
+        </div>
+        <!-- examples -->
+
+        <div class="editor">
+        <select>
+            <option value="example-1">Normals</option>
+            <option value="light-example">Lighting</option>
+        </select>
+        <h1>Vertex Shader</h1>
+        <pre id="vertexShader"></pre>
+        <h1>Fragment Shader</h1>
+        <pre id="fragmentShader"></pre>
+        <button name="apply" id="apply">Apply</button>
+        </div>
+
+        <div class="viewer">
+        </div>
+
+        <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+        <script src="http://threejs.org/build/three.min.js"></script>
+        <script src="js/codemirror.js"></script>
+        <script src="js/mode/clike/clike.js"></script>
+
+        <script>
+            var fragEditor, vertEditor;
+            var camera, scene, renderer;
+            var dirLight;
+            var mesh;
+            var shader_parameters = {};
+            var material;
+
+            function main() {
+                init();
+                animate();
+            }
+
+            function createMesh() {
+                if (mesh) scene.remove(mesh);
+
+                //var texture = THREE.ImageUtils.loadTexture( 'textures/crate.gif' );
+                //texture.anisotropy = renderer.getMaxAnisotropy();
+
+                material = new THREE.ShaderMaterial({ 
+                    uniforms: shader_parameters,
+                    vertexShader: vertEditor.getDoc().getValue(),
+                    fragmentShader: fragEditor.getDoc().getValue()
+                });
+
+                var geometry = new THREE.SphereGeometry( 100, 64, 64 );
+                mesh = new THREE.Mesh(geometry, material);
+                scene.add(mesh);
+            }
+
+            function init() {
+                var view_width = window.innerWidth-$(".editor").outerWidth();
+                var view_height = window.innerHeight;
+
+                renderer = new THREE.WebGLRenderer();
+                renderer.setSize( view_width, view_height );
+                $(".viewer").append( renderer.domElement );
+
+                //
+
+                camera = new THREE.PerspectiveCamera( 70, view_width / view_height, 1, 1000 );
+                camera.position.z = 400;
+
+                scene = new THREE.Scene();
+
+                createMesh();
+
+                window.addEventListener( 'resize', onWindowResize, false );
+
+            }
+
+            function onWindowResize() {
+                var view_width = window.innerWidth-$(".editor").outerWidth();
+                var view_height = window.innerHeight;
+
+                camera.aspect = (view_width / view_height);
+                camera.updateProjectionMatrix();
+
+                renderer.setSize(view_width, view_height);
+            }
+
+            function animate() {
+
+                requestAnimationFrame( animate );
+
+                mesh.rotation.x += 0.005;
+                mesh.rotation.y += 0.01;
+
+                renderer.render( scene, camera );
+
+            }
+
+            $("select").change(function() {
+                var example = $("select option:selected").val();
+                fragEditor.getDoc().setValue($("#"+example+" .frag").text());
+                vertEditor.getDoc().setValue($("#"+example+" .vert").text());
+                createMesh();
+            });
+
+            $("#apply").click(createMesh);
+            $(function() {
+                var initial_fragment_shader = $("#example-1 .frag").text();
+                var initial_vertex_shader = $("#example-1 .vert").text();
+
+                fragEditor = CodeMirror(document.getElementById("fragmentShader"),
+                    {
+                        value: initial_fragment_shader,
+                        mode: "x-shader/x-fragment",
+                        theme: "twilight"
+                    }
+                );
+                vertEditor = CodeMirror(document.getElementById("vertexShader"),
+                    {
+                        value: initial_vertex_shader,
+                        mode: "x-shader/x-vertex",
+                        theme: "twilight"
+                    }
+                );
+            });
+
+            $(main);
+        </script>
+    </body>
+</html>
