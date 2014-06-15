@@ -39,7 +39,7 @@
                 width:
             }
 
-            .example {
+            .example, .hidden {
                 display: none;
             }
 
@@ -50,50 +50,356 @@
         </style>
     </head>
     <body>
+        <div class="hidden" id="vertex_prefix">
+precision highp float;
+precision highp int;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat3 normalMatrix;
+uniform vec3 cameraPosition;
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec2 uv;
+attribute vec2 uv2;
+        </div>
+        <div class="hidden" id="fragment_prefix">
+precision highp float;
+precision highp int;
+
+uniform mat4 viewMatrix;
+uniform vec3 cameraPosition;
+        </div>
         <!-- examples -->
         <div class="example" id="example-1">
             <div class="vert">
-varying vec3 vNormal;
+varying vec3 v_normal;
 void main() {
-    vNormal = normal;
+    v_normal = normalMatrix * normal;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
             </div>
             <div class="frag">
-varying vec3 vNormal;
+varying vec3 v_normal;
 void main() {
-    gl_FragColor = vec4(vNormal, 1.0);
+    gl_FragColor = vec4(v_normal, 1.0);
 }
             </div>
         </div>
         <div class="example" id="light-example">
             <div class="vert">
-varying vec3 vNormal;
+varying vec3 v_normal;
 void main() {
-    vNormal = normal;
+    v_normal = normalMatrix * normal;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
             </div>
             <div class="frag">
-//uniform vec3 directionalLightDirection;
-//uniform vec3 directionalLightColor;
-varying vec3 vNormal;
+varying vec3 v_normal;
 void main() {
-    gl_FragColor = 2.0*vec4(vNormal, 1.0);
+    vec3 L = normalize(vec3(1.0, 1.0, 1.0));
+    vec3 N = normalize(v_normal);
+
+    vec3 diffuse = dot(N, L) * vec3(1.0);
+
+    gl_FragColor = vec4(diffuse, 1.0);
 }
             </div>
         </div>
+        <div class="example" id="specular-example">
+            <div class="vert">
+varying vec3 v_normal;
+void main() {
+    v_normal = normalMatrix * normal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform float specular_coefficient;
+uniform float specular_power;
+
+varying vec3 v_normal;
+
+void main() {
+    vec3 L = normalize(vec3(1.0, 1.0, 1.0));
+    vec3 N = normalize(v_normal);
+    vec3 V = vec3(0.0, 0.0, 1.0);
+    vec3 H = normalize(normalize(V)+L);
+
+    vec3 specular = vec3(1.0) * specular_coefficient * pow(max(0.0, dot(N, H)), specular_power);
+    vec3 diffuse = dot(N, L) * vec3(1.0);
+
+    gl_FragColor = vec4(diffuse + specular, 1.0);
+}
+            </div>
+        </div>
+
+        <div class="example" id="multi-light-example">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+void main() {
+    v_normal = normalMatrix * normal;
+    model_view_matrix = modelViewMatrix;
+    P = (modelViewMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform float specular_coefficient;
+uniform float specular_power;
+
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+
+void main() {
+    const int NUM_LIGHTS = 3;
+    vec3 V = normalize(-P);
+    vec3 N = normalize(v_normal);
+
+    vec3 L[NUM_LIGHTS];
+    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+
+    vec3 Lc[NUM_LIGHTS];
+    Lc[0] = vec3(0.8, 0.8 , 0.8);
+    Lc[1] = 0.2 * vec3(0.6, 0.6, 0.7);
+    Lc[2] = 0.2 * vec3(0.7, 0.6, 0.5);
+
+    vec3 specular = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    
+    for(int i=0; i &lt; NUM_LIGHTS; i++) {
+
+        float NdL = dot(N, L[i]);
+        
+        diffuse = diffuse + Lc[i]*clamp(NdL, 0.0, 1.0);
+
+        if (NdL > 0.0) {
+            vec3 H = normalize(V+L[i]);
+            specular = specular + specular_coefficient * Lc[i] * pow(max(0.0, dot(N, H)), specular_power);
+        }
+    }
+
+
+    gl_FragColor = vec4(diffuse + specular, 1.0);
+}
+            </div>
+        </div>
+
+        <div class="example" id="alternate-specular-example">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+void main() {
+    v_normal = normalMatrix * normal;
+    model_view_matrix = modelViewMatrix;
+    P = (modelViewMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform float specular_coefficient;
+uniform float specular_power;
+
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+
+void main() {
+    const int NUM_LIGHTS = 3;
+    vec3 V = normalize(-P);
+    vec3 N = normalize(v_normal);
+
+    vec3 L[NUM_LIGHTS];
+    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+
+    vec3 Lc[NUM_LIGHTS];
+    Lc[0] = vec3(0.8, 0.8 , 0.8);
+    Lc[1] = 0.2 * vec3(0.6, 0.6, 0.7);
+    Lc[2] = 0.2 * vec3(0.7, 0.6, 0.5);
+
+    vec3 specular = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    
+    for(int i=0; i &lt; NUM_LIGHTS; i++) {
+
+        float NdL = dot(N, L[i]);
+        
+        diffuse = diffuse + Lc[i]*clamp(NdL, 0.0, 1.0);
+
+        if (NdL > 0.0) {
+            vec3 H = normalize(V+L[i]);
+            
+            float w = pow(1.0 - max(0.0, dot(H, V)), 
+                          5.0);
+            
+            specular = specular + specular_coefficient * Lc[i] 
+                * mix(Lc[i], vec3(1.0), w)
+                * pow(max(0.0, dot(reflect(-L[i], N), N)),
+                      specular_power);
+        }
+    }
+
+
+    gl_FragColor = vec4(diffuse + specular, 1.0);
+}
+            </div>
+        </div>
+
+        <div class="example" id="fresnel-example">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+void main() {
+    v_normal = normalMatrix * normal;
+    model_view_matrix = modelViewMatrix;
+    P = (modelViewMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+
+uniform float specular_coefficient;
+uniform float specular_power;
+
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+
+void main() {
+    const int NUM_LIGHTS = 3;
+    vec3 V = normalize(-P);
+    vec3 N = normalize(v_normal);
+
+    vec3 L[NUM_LIGHTS];
+    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+
+    vec3 Lc[NUM_LIGHTS];
+    Lc[0] = vec3(0.8, 0.8 , 0.8);
+    Lc[1] = 0.2 * vec3(0.6, 0.6, 0.7);
+    Lc[2] = 0.2 * vec3(0.7, 0.6, 0.5);
+
+    vec3 specular = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    
+    for(int i=0; i &lt; NUM_LIGHTS; i++) {
+
+        float NdL = dot(N, L[i]);
+        
+        diffuse = diffuse + Lc[i]*clamp(NdL, 0.0, 1.0);
+
+        if (NdL > 0.0) {
+            vec3 H = normalize(V+L[i]);
+            
+            float w = pow(1.0 - max(0.0, dot(H, V)), 
+                          5.0);
+            
+            specular = specular + specular_coefficient * Lc[i] 
+                * mix(Lc[i], vec3(1.0), w)
+                * pow(max(0.0, dot(reflect(-L[i], N), N)),
+                      specular_power);
+        }
+    }
+
+    float facing = 1.0 - dot(V, N);
+    vec3 rim_color = vec3(0.5);
+    vec3 rim = rim_color * smoothstep(0.5, 1.0, facing) * (specular+diffuse);
+
+    gl_FragColor = vec4(specular + diffuse + rim, 1.0);
+}
+          
+            </div>
+        </div>
+
+        <div class="example" id="cook-torrence-example">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+void main() {
+    v_normal = normalMatrix * normal;
+    model_view_matrix = modelViewMatrix;
+    P = (modelViewMatrix * vec4(position, 1.0)).xyz; 
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+
+uniform float specular_coefficient;
+uniform float specular_power;
+
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+
+void main() {
+    const int NUM_LIGHTS = 3;
+    vec3 V = normalize(-P);
+    vec3 N = normalize(v_normal);
+
+    vec3 L[NUM_LIGHTS];
+    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+
+    vec3 Lc[NUM_LIGHTS];
+    Lc[0] = vec3(0.8, 0.8 , 0.8);
+    Lc[1] = 0.2 * vec3(0.6, 0.6, 0.7);
+    Lc[2] = 0.2 * vec3(0.7, 0.6, 0.5);
+
+    vec3 specular = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    
+    for(int i=0; i &lt; NUM_LIGHTS; i++) {
+
+        vec3 H = normalize(V+L[i]);
+        float NdL = clamp(dot(N, L[i]), 0.0, 1.0);
+        float NdH = clamp(dot(N, H), 0.0, 1.0);
+        float FG = 0.25 / (pow(NdH, 3.0) + 1.0/32.0);
+        float D = 0.5 * (specular_power + 1.0) * pow(NdH, specular_power);
+        float DFG = D * FG;
+        
+        specular = specular + Lc[i] * NdL * DFG * specular_coefficient;
+        diffuse = diffuse + Lc[i] * NdL;
+    }
+
+
+    gl_FragColor = vec4(diffuse + specular, 1.0);
+}
+          
+            </div>
+        </div>
+
         <!-- examples -->
 
         <div class="editor">
         <select>
             <option value="example-1">Normals</option>
             <option value="light-example">Lighting</option>
+            <option value="specular-example">Specular</option>
+            <option value="multi-light-example">Multiple Lights</option>
+            <option value="alternate-specular-example" selected>Alternate Specular</option>
+            <option value="fresnel-example">Fresnel</option>
+            <option value="texture-example">Texture</option>
+            <option value="reflection-example">Reflection</option>
+            <option value="cook-torrence-example">Cook-Torrence</option>
         </select>
         <h1>Vertex Shader</h1>
-        <pre id="vertexShader"></pre>
+        <pre id="vertexShaderEditor"></pre>
         <h1>Fragment Shader</h1>
-        <pre id="fragmentShader"></pre>
+        <pre id="fragmentShaderEditor"></pre>
         <button name="apply" id="apply">Apply</button>
         </div>
 
@@ -104,22 +410,91 @@ void main() {
         <script src="http://threejs.org/build/three.min.js"></script>
         <script src="js/codemirror.js"></script>
         <script src="js/mode/clike/clike.js"></script>
+        <script src="js/dat.gui.min.js"></script>
 
         <script>
             var fragEditor, vertEditor;
             var camera, scene, renderer;
             var dirLight;
             var mesh;
-            var shader_parameters = {};
             var material;
+            var shader_parameters = {
+                "specular_coefficient": { 
+                    type: 'f', 
+                    value: 1.0, 
+                    min: 0.0001, 
+                    max: 8.0 
+                },
+                "specular_power": { 
+                    type: 'f', 
+                    value: 30.0, 
+                    min: 0.0001, 
+                    max: 256.0
+                }
+            };
+
+            function setupGui() {
+                var gui_params = {};
+                $.each(shader_parameters, function(name, param) {
+                    gui_params[name] = param.value;
+                });
+
+                var gui = new dat.gui.GUI();
+
+                $.each(gui_params, function(name, value) {
+                    gui.add(gui_params, name, 
+                        shader_parameters[name].min, 
+                        shader_parameters[name].max).onChange(function(v) {
+                            shader_parameters[name].value = v;
+                            shader_parameters[name].needsUpdate = true;
+                        }
+                    );
+                });
+            }
 
             function main() {
+                setupGui();
                 init();
                 animate();
             }
 
+            function compileShader(editor, type) {
+                var gl = renderer.context;
+                var shader = gl.createShader(type);
+                var src = editor.getDoc().getValue();
+                console.log(src);
+                console.log(type);
+
+                var prefix = "";
+                if (type == gl.VERTEX_SHADER)
+                    prefix = $("#vertex_prefix").text();
+                else
+                    prefix = $("#fragment_prefix").text();
+
+                gl.shaderSource(shader, prefix + src);
+                gl.compileShader(shader);
+
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    console.log(gl.getShaderParameter(shader, gl.COMPILE_STATUS));
+                    return false;
+                }
+
+                return true;
+            }
+
+            function applyShaderIfCompiles() {
+                console.log("testing");
+                var gl = renderer.context;
+                if (compileShader(vertEditor, gl.VERTEX_SHADER) && compileShader(fragEditor, gl.FRAGMENT_SHADER))
+                    createMesh();
+            }
+
             function createMesh() {
-                if (mesh) scene.remove(mesh);
+                var rotation = 0;
+                if (mesh) {
+                    rotation = mesh.rotation.y;
+                    scene.remove(mesh);
+                }
 
                 //var texture = THREE.ImageUtils.loadTexture( 'textures/crate.gif' );
                 //texture.anisotropy = renderer.getMaxAnisotropy();
@@ -133,6 +508,7 @@ void main() {
                 var geometry = new THREE.SphereGeometry( 100, 64, 64 );
                 mesh = new THREE.Mesh(geometry, material);
                 scene.add(mesh);
+                mesh.rotation.y = rotation;
             }
 
             function init() {
@@ -170,39 +546,52 @@ void main() {
 
                 requestAnimationFrame( animate );
 
-                mesh.rotation.x += 0.005;
-                mesh.rotation.y += 0.01;
+                mesh.rotation.y += 0.005;
 
                 renderer.render( scene, camera );
 
             }
 
-            $("select").change(function() {
-                var example = $("select option:selected").val();
+            function getActiveExample() {
+                return $("select option:selected").val();
+            }
+
+            function applySelectedShaders() {
+                var example = getActiveExample();
                 fragEditor.getDoc().setValue($("#"+example+" .frag").text());
                 vertEditor.getDoc().setValue($("#"+example+" .vert").text());
                 createMesh();
-            });
+            }
+
+            $("select").change(applySelectedShaders);
 
             $("#apply").click(createMesh);
             $(function() {
-                var initial_fragment_shader = $("#example-1 .frag").text();
-                var initial_vertex_shader = $("#example-1 .vert").text();
+                var example = getActiveExample();
+                var initial_fragment_shader = $("#"+example+" .frag").text();
+                var initial_vertex_shader = $("#"+example+" .vert").text();
 
-                fragEditor = CodeMirror(document.getElementById("fragmentShader"),
-                    {
-                        value: initial_fragment_shader,
-                        mode: "x-shader/x-fragment",
-                        theme: "twilight"
-                    }
-                );
-                vertEditor = CodeMirror(document.getElementById("vertexShader"),
+                vertEditor = CodeMirror(document.getElementById("vertexShaderEditor"),
                     {
                         value: initial_vertex_shader,
                         mode: "x-shader/x-vertex",
+                        indentUnit: 4,
                         theme: "twilight"
                     }
                 );
+
+                fragEditor = CodeMirror(document.getElementById("fragmentShaderEditor"),
+                    {
+                        value: initial_fragment_shader,
+                        mode: "x-shader/x-fragment",
+                        indentUnit: 4,
+                        onChange: applyShaderIfCompiles,
+                        theme: "twilight"
+                    }
+                );
+
+                vertEditor.on("change", applyShaderIfCompiles);
+                fragEditor.on("change", applyShaderIfCompiles);
             });
 
             $(main);
