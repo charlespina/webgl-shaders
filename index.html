@@ -323,7 +323,7 @@ void main() {
             </div>
         </div>
 
-        <div class="example" id="cook-torrence-example">
+        <div class="example" id="cook-torrance-example">
             <div class="vert">
 varying vec3 v_normal;
 varying vec3 P;
@@ -382,6 +382,70 @@ void main() {
             </div>
         </div>
 
+        <div class="example" id="cook-torrance-hq-example">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+void main() {
+    v_normal = normalMatrix * normal;
+    model_view_matrix = modelViewMatrix;
+    P = (modelViewMatrix * vec4(position, 1.0)).xyz; 
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+
+
+uniform float specular_coefficient;
+uniform float specular_power;
+
+varying vec3 v_normal;
+varying vec3 P;
+varying mat4 model_view_matrix;
+
+void main() {
+    const int NUM_LIGHTS = 3;
+    vec3 V = normalize(-P);
+    vec3 N = normalize(v_normal);
+
+    vec3 L[NUM_LIGHTS];
+    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+
+    vec3 Lc[NUM_LIGHTS];
+    Lc[0] = vec3(0.8, 0.8 , 0.8);
+    Lc[1] = 0.2 * vec3(0.6, 0.6, 0.7);
+    Lc[2] = 0.2 * vec3(0.7, 0.6, 0.5);
+
+    vec3 specular = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    
+    for(int i=0; i &lt; NUM_LIGHTS; i++) {
+
+        vec3 H = normalize(V+L[i]);
+        float NdL = clamp(dot(N, L[i]), 0.0, 1.0);
+        float NdH = clamp(dot(N, H), 0.0, 1.0);
+        float VdH = clamp(dot(V, H), 0.0, 1.0);
+        float NdV = clamp(dot(N, V), 0.0, 1.0);
+        float alpha = acos(NdH);
+        float F0 = 1.44; // reflection at normal incidence
+        float m = 0.6; // roughness
+        float F = pow(1.0 - VdH, 5.0) * (1.0 - F0) + F0;
+        float G = min(1.0, min(2.0*NdH*NdV/VdH, 2.0*NdH*NdL/VdH));
+        float D = 1.0 * exp(-(alpha)/(m*m));
+        float DFG = (D * F * G) * (1.0 - NdV);
+        
+        specular = specular + Lc[i] * DFG * specular_coefficient;
+        diffuse = diffuse + Lc[i] * NdL;
+    }
+
+
+    gl_FragColor = vec4(diffuse + specular, 1.0);
+}
+            </div>
+        </div>
         <!-- examples -->
 
         <div class="editor">
@@ -394,7 +458,8 @@ void main() {
             <option value="fresnel-example">Fresnel</option>
             <option value="texture-example">Texture</option>
             <option value="reflection-example">Reflection</option>
-            <option value="cook-torrence-example">Cook-Torrence</option>
+            <option value="cook-torrance-example">Cook-Torrance Cheap</option>
+            <option value="cook-torrance-hq-example">Cook-Torrance HQ</option>
         </select>
         <h1>Vertex Shader</h1>
         <pre id="vertexShaderEditor"></pre>
