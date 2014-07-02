@@ -140,10 +140,8 @@ void main() {
             <div class="vert">
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 void main() {
     v_normal = normalMatrix * normal;
-    model_view_matrix = modelViewMatrix;
     P = (modelViewMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
@@ -151,10 +149,10 @@ void main() {
             <div class="frag">
 uniform float specular_coefficient;
 uniform float specular_power;
+uniform mat4 modelViewMatrix;
 
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 
 void main() {
     const int NUM_LIGHTS = 3;
@@ -162,9 +160,9 @@ void main() {
     vec3 N = normalize(v_normal);
 
     vec3 L[NUM_LIGHTS];
-    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
-    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
-    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+    L[0] = normalize((modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((modelViewMatrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
 
     vec3 Lc[NUM_LIGHTS];
     Lc[0] = vec3(0.8, 0.8 , 0.8);
@@ -176,14 +174,12 @@ void main() {
     
     for(int i=0; i &lt; NUM_LIGHTS; i++) {
 
-        float NdL = dot(N, L[i]);
+        float NdL = clamp(dot(N, L[i]), 0.0, 1.0);
         
-        diffuse = diffuse + Lc[i]*clamp(NdL, 0.0, 1.0);
+        diffuse = diffuse + Lc[i]*NdL;
 
-        if (NdL > 0.0) {
-            vec3 H = normalize(V+L[i]);
-            specular = specular + specular_coefficient * Lc[i] * pow(max(0.0, dot(N, H)), specular_power);
-        }
+        vec3 H = normalize(V+L[i]);
+        specular = specular + specular_coefficient * Lc[i] * pow(max(0.0, dot(N, H)), specular_power);
     }
 
 
@@ -196,21 +192,19 @@ void main() {
             <div class="vert">
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 void main() {
     v_normal = normalMatrix * normal;
-    model_view_matrix = modelViewMatrix;
     P = (modelViewMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
             </div>
             <div class="frag">
+uniform mat4 modelViewMatrix;
 uniform float specular_coefficient;
 uniform float specular_power;
 
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 
 void main() {
     const int NUM_LIGHTS = 3;
@@ -218,9 +212,9 @@ void main() {
     vec3 N = normalize(v_normal);
 
     vec3 L[NUM_LIGHTS];
-    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
-    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
-    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+    L[0] = normalize((modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((modelViewMatrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
 
     vec3 Lc[NUM_LIGHTS];
     Lc[0] = vec3(0.8, 0.8 , 0.8);
@@ -259,22 +253,20 @@ void main() {
             <div class="vert">
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 void main() {
     v_normal = normalMatrix * normal;
-    model_view_matrix = modelViewMatrix;
     P = (modelViewMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
             </div>
             <div class="frag">
 
+uniform mat4 modelViewMatrix;
 uniform float specular_coefficient;
 uniform float specular_power;
 
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 
 void main() {
     const int NUM_LIGHTS = 3;
@@ -282,9 +274,9 @@ void main() {
     vec3 N = normalize(v_normal);
 
     vec3 L[NUM_LIGHTS];
-    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
-    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
-    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+    L[0] = normalize((modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((modelViewMatrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
 
     vec3 Lc[NUM_LIGHTS];
     Lc[0] = vec3(0.8, 0.8 , 0.8);
@@ -327,22 +319,20 @@ void main() {
             <div class="vert">
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 void main() {
     v_normal = normalMatrix * normal;
-    model_view_matrix = modelViewMatrix;
     P = (modelViewMatrix * vec4(position, 1.0)).xyz; 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
             </div>
             <div class="frag">
 
+uniform mat4 modelViewMatrix;
 uniform float specular_coefficient;
 uniform float specular_power;
 
 varying vec3 v_normal;
 varying vec3 P;
-varying mat4 model_view_matrix;
 
 void main() {
     const int NUM_LIGHTS = 3;
@@ -350,9 +340,9 @@ void main() {
     vec3 N = normalize(v_normal);
 
     vec3 L[NUM_LIGHTS];
-    L[0] = normalize((model_view_matrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
-    L[1] = normalize((model_view_matrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
-    L[2] = normalize((model_view_matrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
+    L[0] = normalize((modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    L[1] = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz );
+    L[2] = normalize((modelViewMatrix * vec4(-1.0, 0.0, 0.0, 0.0)).xyz );
 
     vec3 Lc[NUM_LIGHTS];
     Lc[0] = vec3(0.8, 0.8 , 0.8);
@@ -382,6 +372,259 @@ void main() {
             </div>
         </div>
 
+        <div class="example" id="texture-example">
+            <div class="vert">
+varying vec2 v_uv;
+varying vec3 v_normal;
+void main() {
+    v_uv = uv;
+    v_normal = normalMatrix * normal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform sampler2D texture;
+uniform mat4 modelViewMatrix;
+
+varying vec2 v_uv;
+varying vec3 v_normal;
+
+void main() {
+    vec3 diffuse_color = texture2D(texture, v_uv).rgb;
+    vec3 Lc = vec3(0.8);
+    vec3 L = (modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz;
+    vec3 ambient = vec3(0.2);
+    
+    float NdL = clamp(dot(v_normal, L), 0.0, 1.0);
+    vec3 diffuse_light = Lc * NdL + ambient;
+    
+    gl_FragColor = vec4(diffuse_light*diffuse_color, 1.0);
+}
+            </div>
+        </div>
+        <div class="example" id="normal-map-example">
+            <div class="vert">
+attribute vec4 tangent;
+
+varying vec2 v_uv;
+varying mat3 TBN;
+
+void main() {
+    vec3 N = normalize(normalMatrix * normal);
+    vec3 T = normalize(normalMatrix * tangent.xyz);
+    vec3 B = normalize(normalMatrix * cross(normal, tangent.xyz) * tangent.w);
+    TBN = mat3(
+       T.x, T.y, T.z,
+       B.x, B.y, B.z,
+       N.x, N.y, N.z
+    );
+
+    v_uv = uv;
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform sampler2D texture;
+uniform sampler2D day_diffuse_map;
+uniform sampler2D normal_map;
+
+uniform mat4 modelViewMatrix;
+
+varying vec2 v_uv;
+varying mat3 TBN;
+
+vec3 getNormal()
+{
+    vec3 Nm = texture2D(normal_map, v_uv).xyz;
+    Nm *= 2.0;
+    Nm -= vec3(1.0);
+    return normalize(TBN * Nm);
+}
+
+void main() {
+    vec3 diffuse_color = texture2D(day_diffuse_map, v_uv).rgb;
+
+    vec3 Lc = vec3(0.8);
+    vec3 L = (modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz;
+    vec3 ambient = vec3(0.2);
+    
+    vec3 N = getNormal();
+    float NdL = clamp(dot(N, L), 0.0, 1.0);
+
+    vec3 diffuse_light = Lc * NdL + ambient;
+    
+    gl_FragColor = vec4(diffuse_light*diffuse_color, 1.0);
+}
+            </div>
+        </div>
+
+        <div class="example" id="earth-example">
+            <div class="vert">
+attribute vec4 tangent;
+
+varying vec2 v_uv;
+varying mat3 TBN;
+varying vec3 P;
+void main() {
+    vec3 N = normalize(normalMatrix * normal);
+    vec3 T = normalize(normalMatrix * tangent.xyz);
+    vec3 B = normalize(normalMatrix * cross(normal, tangent.xyz) * tangent.w);
+    TBN = mat3(
+       T.x, T.y, T.z,
+       B.x, B.y, B.z,
+       N.x, N.y, N.z
+    );
+    v_uv = uv;
+    P = (modelViewMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+
+
+
+uniform mat4 modelViewMatrix;
+uniform float time;
+
+uniform sampler2D cloud_map;
+uniform sampler2D specular_map;
+uniform sampler2D day_diffuse_map;
+uniform sampler2D night_diffuse_map;
+uniform sampler2D normal_map;
+uniform sampler2D glow_map;
+
+
+varying vec2 v_uv;
+varying mat3 TBN;
+varying vec3 P;
+
+vec3 getNormal()
+{
+    vec3 Nm = texture2D(normal_map, v_uv).xyz;
+    Nm *= 2.0;
+    Nm -= vec3(1.0);
+    return normalize(TBN * Nm);
+}
+
+void main() {
+    vec3 V = normalize(-P);
+    vec3 N = getNormal();
+    vec3 sphereN = TBN[2];
+
+    // light
+    vec3 L = normalize((modelViewMatrix * vec4(1.0, 1.0, 1.0, 0.0)).xyz );
+    vec3 Lc = vec3(0.9, 0.9 , 0.8);
+
+    // diffuse
+    float NdL = max(0.0, dot(N, L));
+    float sphereNdL = max(0.0, dot(sphereN, L));
+    vec3 diffuse =  Lc*NdL;
+
+    // specular
+    const float specular_coefficient = 0.5;
+    const float specular_power = 25.0;
+    const float earth_spec = 0.6;
+    const float sea_spec = 0.8;
+    vec3 H = normalize(V+L);
+    float spec_amount = mix(earth_spec, sea_spec, texture2D(specular_map, v_uv).r);
+    float NdH = clamp(dot(N, H), 0.0, 1.0);
+    float FG = 0.25 / (pow(NdH, 3.0) + 1.0/32.0);
+    float D = spec_amount * 0.5 * (specular_power + 1.0) * pow(NdH, specular_power * spec_amount);
+    float DFG = D * FG;
+    vec3 specular = spec_amount * specular_coefficient * Lc * NdL * DFG;
+    
+    // fresnel
+    float facing = 1.0 - max(0.0, dot(V, sphereN));
+    
+    // day/night mixing
+    vec3 day_color = texture2D(day_diffuse_map, v_uv).rgb;
+    vec3 night_color = texture2D(night_diffuse_map, v_uv).rgb;
+    vec3 diffuse_color = mix(night_color, diffuse*day_color, sphereNdL);
+
+    // basic light model
+    vec3 globe = diffuse_color + specular;
+    
+    // glow
+    vec3 glow = 3.0 * texture2D(glow_map, v_uv).rgb;
+    globe += glow * clamp(1.0-2.0*sphereNdL, 0.0, 1.0);
+    
+    // cloud coverage 
+    const vec2 cloud_velocity = vec2(0.012, 0.0);
+    const float cloud_min = 0.15;
+    const float cloud_max = 1.0;
+    vec4 cloud = texture2D(cloud_map, v_uv + time*cloud_velocity);
+    
+    globe = mix(globe, cloud.rgb, cloud_min * cloud.a);
+    globe = mix(globe, cloud_max * cloud.rgb, facing * sphereNdL * cloud.a);
+    
+    // lets pretend the globe is a bit smaller
+    globe *= 1.0 - smoothstep(0.75, 0.83, facing);
+    
+    // make the atmosphere 
+    const float min_atmo_amount = 0.03;
+    const vec3 atmo_color = vec3(0.8, 0.9, 1.0);
+    vec3 atmosphere = atmo_color * (min_atmo_amount + sphereNdL);
+    vec3 fresnatmosphere = smoothstep(0.3, 1.0, facing) * atmosphere;
+    
+    // make the atmosphere hazy and soft
+    float fade = smoothstep(1.0, 0.7, facing);
+    vec3 atmo = fade * fresnatmosphere;
+
+    // final color
+    gl_FragColor = vec4(globe + atmo, 1.0); 
+}
+            </div>
+        </div>
+        <div class="example" id="reflection-example">
+            <div class="vert">
+attribute vec4 tangent;
+
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying mat3 TBN;
+
+void main() {
+    vec3 N = normalize(normalMatrix * normal);
+    vec3 T = normalize(normalMatrix * tangent.xyz);
+    vec3 B = normalize(normalMatrix * cross(normal, tangent.xyz) * tangent.w);
+    TBN = mat3(
+       T.x, T.y, T.z,
+       B.x, B.y, B.z,
+       N.x, N.y, N.z
+    );
+
+    v_uv = uv;
+    v_normal = normalMatrix * normal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform sampler2D reflection_map;
+uniform sampler2D normal_map;
+
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying mat3 TBN;
+
+vec3 getNormal()
+{
+    vec3 Nm = texture2D(normal_map, v_uv).xyz;
+    Nm *= 2.0;
+    Nm -= vec3(1.0);
+    return normalize(TBN * Nm);
+}
+
+void main() {
+    // vec3 N = normalize(v_normal);
+    vec3 N =  getNormal();
+    vec2 uv = N.xy / 2.0 + vec2(0.5);
+    vec3 color = texture2D(reflection_map, uv).rgb;
+    gl_FragColor = vec4(color, 1.0);
+}
+            </div>
+        </div>
+
         <!-- examples -->
 
         <div class="editor">
@@ -390,11 +633,13 @@ void main() {
             <option value="light-example">Lighting</option>
             <option value="specular-example">Specular</option>
             <option value="multi-light-example">Multiple Lights</option>
-            <option value="alternate-specular-example" selected>Alternate Specular</option>
+            <option value="alternate-specular-example">Alternate Specular</option>
             <option value="fresnel-example">Fresnel</option>
             <option value="texture-example">Texture</option>
-            <option value="reflection-example">Reflection</option>
+            <option value="normal-map-example">Normal Map</option>
+            <option value="reflection-example" selected>Reflection</option>
             <option value="cook-torrence-example">Cook-Torrence</option>
+            <option value="earth-example">Earth</option>
         </select>
         <h1>Vertex Shader</h1>
         <pre id="vertexShaderEditor"></pre>
@@ -419,6 +664,42 @@ void main() {
             var mesh;
             var material;
             var shader_parameters = {
+                "time": {
+                    type: 'f',
+                    value: 0.0
+                },
+                "texture": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/tracking.png")
+                },
+                "cloud_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/clouds.png")
+                },
+                "specular_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/earth-SPEC.png")
+                },
+                "day_diffuse_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/earth-day-DIFF.png")
+                },
+                "night_diffuse_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/earth-night-DIFF.png")
+                },
+                "glow_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/earth-night-GLOW.png")
+                },
+                "normal_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/earth-NM.png")
+                },
+                "reflection_map": {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture("textures/reflection.jpg")
+                },
                 "specular_coefficient": { 
                     type: 'f', 
                     value: 1.0, 
@@ -436,7 +717,8 @@ void main() {
             function setupGui() {
                 var gui_params = {};
                 $.each(shader_parameters, function(name, param) {
-                    gui_params[name] = param.value;
+                    if (param.type != "t")
+                        gui_params[name] = param.value;
                 });
 
                 var gui = new dat.gui.GUI();
@@ -506,6 +788,7 @@ void main() {
                 });
 
                 var geometry = new THREE.SphereGeometry( 100, 64, 64 );
+                geometry.computeTangents();
                 mesh = new THREE.Mesh(geometry, material);
                 scene.add(mesh);
                 mesh.rotation.y = rotation;
@@ -515,11 +798,11 @@ void main() {
                 var view_width = window.innerWidth-$(".editor").outerWidth();
                 var view_height = window.innerHeight;
 
+                shader_parameters.cloud_map.value.wrapS = shader_parameters.cloud_map.value.wrapT = THREE.RepeatWrapping;
+
                 renderer = new THREE.WebGLRenderer();
                 renderer.setSize( view_width, view_height );
                 $(".viewer").append( renderer.domElement );
-
-                //
 
                 camera = new THREE.PerspectiveCamera( 70, view_width / view_height, 1, 1000 );
                 camera.position.z = 400;
@@ -547,6 +830,9 @@ void main() {
                 requestAnimationFrame( animate );
 
                 mesh.rotation.y += 0.005;
+
+                shader_parameters.time.value += 0.01;
+                shader_parameters.time.needsUpdate = true;
 
                 renderer.render( scene, camera );
 
