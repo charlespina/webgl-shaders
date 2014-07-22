@@ -1,0 +1,4 @@
+To run a webserver, and start poking around, run:
+$ node scripts/web-server.js
+
+Then, navigate to http://localhost:8000
