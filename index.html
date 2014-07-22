@@ -73,7 +73,19 @@ uniform mat4 viewMatrix;
 uniform vec3 cameraPosition;
         </div>
         <!-- examples -->
-        <div class="example" id="example-1">
+        <div class="example" id="simple-example">
+            <div class="vert">
+void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+void main() {
+    gl_FragColor = vec4(0.5, 0.5, 0.5, 1.0);
+}
+            </div>
+        </div>
+        <div class="example" id="normal-example">
             <div class="vert">
 varying vec3 v_normal;
 void main() {
@@ -687,7 +699,8 @@ void main() {
 
         <div class="editor">
         <select>
-            <option value="example-1">Normals</option>
+            <option value="simple-example">Simple</option>
+            <option value="normal-example">Normals</option>
             <option value="light-example">Lighting</option>
             <option value="specular-example">Specular</option>
             <option value="multi-light-example">Multiple Lights</option>
@@ -695,7 +708,7 @@ void main() {
             <option value="fresnel-example">Fresnel</option>
             <option value="texture-example">Texture</option>
             <option value="normal-map-example">Normal Map</option>
-            <option value="reflection-example" selected>Reflection</option>
+            <option value="reflection-example">Reflection</option>
             <option value="earth-example">Earth</option>
             <option value="cook-torrance-example">Cook-Torrance Cheap</option>
             <option value="cook-torrance-hq-example">Cook-Torrance HQ</option>
