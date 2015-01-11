@@ -1,0 +1,477 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Reaction-Diffusion</title>
+        <link rel="stylesheet" href="css/codemirror.css">
+        <link rel="stylesheet" href="css/theme/twilight.css">
+        <meta charset="utf-8">
+        <style>
+            body {
+                margin: 0px;
+                background-color: #000;
+                overflow: hidden;
+                color: white;
+            }
+            .editor {
+                float: left;
+                width: 600px;
+                padding: 5px;
+            }
+
+            h1 {
+                font-family: Monaco;
+                font-size: 14px;
+                padding-left: 5px;
+            }
+
+            .editor button {
+                float: right;
+            }
+
+            pre {
+                border: 1px solid #333;
+                padding: 5px;
+                margin: 5px;
+            }
+
+            .viewer {
+                float: right;
+                width:
+            }
+
+            .program, .hidden {
+                display: none;
+            }
+
+            select {
+                float: right;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div class="hidden" id="vertex_prefix">
+// These common variables are prefixed to each vertex program
+precision highp float;
+precision highp int;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat3 normalMatrix;
+uniform vec3 cameraPosition;
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec2 uv;
+attribute vec2 uv2;
+        </div>
+        <div class="hidden" id="fragment_prefix">
+// These common variables are prefixed to each fragment program
+precision highp float;
+precision highp int;
+
+uniform mat4 viewMatrix;
+uniform vec3 cameraPosition;
+        </div>
+        <!-- examples -->
+        <div class="program" id="reaction-diffusion">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec2 v_uv;
+
+void main() {
+    v_uv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform float time;
+uniform float delta_time;
+uniform float A_feed_rate;
+uniform float B_kill_rate;
+uniform float A_diffuse;
+uniform float B_diffuse;
+uniform sampler2D texture;
+
+varying vec3 v_normal;
+varying vec2 v_uv;
+
+const float RESOLUTION = 512.0;
+
+vec3 sample(float step, float x, float y) {
+    float step_u = step * (x-1.0);
+    float step_v = step * (y-1.0);
+    return texture2D(texture, v_uv+vec2(step_u, step_v)).rgb;
+}
+
+vec3 laplacian() {
+    float CONVOLUTION_WEIGHTS[9];
+    CONVOLUTION_WEIGHTS[0] = 0.05; CONVOLUTION_WEIGHTS[1] = 0.2; CONVOLUTION_WEIGHTS[2] = 0.05; 
+    CONVOLUTION_WEIGHTS[3] = 0.2; CONVOLUTION_WEIGHTS[4] = -1.0; CONVOLUTION_WEIGHTS[5] = 0.2; 
+    CONVOLUTION_WEIGHTS[6] = 0.05; CONVOLUTION_WEIGHTS[7] = 0.2; CONVOLUTION_WEIGHTS[8] = 0.05; 
+
+    float uv_step = 1.0/RESOLUTION;
+    vec3 total = vec3(0.0);
+    for(float i=0.0; i<3.0; i+=1.0) {
+        for(float j=0.0; j<3.0; j+=1.0) {
+            total += sample(uv_step, i, j) * CONVOLUTION_WEIGHTS[int(i+j*3.0)];
+        }
+    }
+    return total;
+}
+
+void main() {
+
+    vec3 data = texture2D(texture, v_uv).rgb;
+
+    vec3 L = laplacian();
+    float L_A = L.r;
+    float L_B = L.g;
+
+    float A = data.r;
+    float B = data.g;
+
+    float A_prime = A + (A_diffuse * L_A - A*pow(B,2.0) + A_feed_rate * (1.0-A)) * delta_time;
+    float B_prime = B + (B_diffuse * L_B + A*pow(B,2.0) - (B_kill_rate+A_feed_rate) * B) * delta_time;
+
+    gl_FragColor = vec4(A_prime, B_prime, 0.0, 1.0);
+}
+            </div>
+        </div>
+        <div class="program" id="display-shader">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec2 v_uv;
+
+void main() {
+    v_uv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+uniform sampler2D texture;
+
+varying vec3 v_normal;
+varying vec2 v_uv;
+
+void main() {
+    vec3 data = texture2D(texture, v_uv).rgb;
+    vec3 color = vec3(1.0 - smoothstep(0.0, 0.4, data.g));
+    gl_FragColor = vec4(color, 1.0);
+}
+            </div>
+        </div>
+        <!-- //programs -->
+
+        <div class="editor">
+            <select>
+                <option value="reaction-diffusion" selected>Reaction-Diffusion</option>
+            </select>
+            <h1>Vertex Shader</h1>
+            <pre id="vertexShaderEditor"></pre>
+
+            <h1>Fragment Shader</h1>
+            <pre id="fragmentShaderEditor"></pre>
+
+            <button name="apply" id="apply">Apply</button>
+        </div>
+
+        <div class="viewer">
+        </div>
+
+        <script src="//localhost:35729/livereload.js"></script>
+        <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+        <script src="http://threejs.org/build/three.min.js"></script>
+        <script src="js/codemirror.js"></script>
+        <script src="js/mode/clike/clike.js"></script>
+        <script src="js/dat.gui.min.js"></script>
+
+        <script>
+            var SIM_RESOLUTION = 512;
+            var fragEditor, vertEditor;
+            var renderer;
+            var display = {
+                mesh: null,
+                material: null,
+                camera: null,
+                mesh: null,
+                scene: null
+            };
+
+            var compute = {
+                camera: null,
+                scene: null,
+                material: null,
+                mesh: null,
+                data: null,
+                initialTexture: null,
+                renderTexture: null,
+                buffer: [],
+                renderTextureParameters: {
+                    minFilter: THREE.LinearFilter,
+                    magFilter: THREE.LinearFilter,
+                    wrapS: THREE.RenderTargetWrapping,
+                    wrapT: THREE.RenderTargetWrapping,
+                    format: THREE.RGBFormat,
+                    stencilBuffer: false,
+                    depthBuffer: false,
+                    type: THREE.FloatType
+                },
+                shaderParameters: {
+                    "time": {
+                        type: 'f',
+                        value: 0.0
+                    },
+                    "delta_time": {
+                        type: 'f',
+                        value: 0.0
+                    },
+                    "A_diffuse": {
+                        type: 'f',
+                        value: 1.0
+                    },
+                    "B_diffuse": {
+                        type: 'f',
+                        value: 0.5
+                    },
+                    "A_feed_rate": {
+                        type: 'f',
+                        value: 0.0545
+                    },
+                    "B_kill_rate": {
+                        type: 'f',
+                        value: 0.062
+                    },
+                    "texture": {
+                        type: 't',
+                        value: null
+                    }
+                }
+            };
+
+            function setupGui() {
+                var guiParams = {};
+                $.each(compute.shaderParameters, function(name, param) {
+                    if (param.type != "t")
+                        guiParams[name] = param.value;
+                });
+
+                var gui = new dat.gui.GUI();
+
+                // TODO: add support for display shader params
+                $.each(guiParams, function(name, value) {
+                    gui.add(guiParams, name, 
+                        compute.shaderParameters[name].min, 
+                        compute.shaderParameters[name].max).onChange(function(v) {
+                            compute.shaderParameters[name].value = v;
+                            compute.shaderParameters[name].needsUpdate = true;
+                        }
+                    );
+                });
+            }
+
+            function main() {
+                setupGui();
+                init();
+                animate();
+            }
+
+            function compileShader(editor, type) {
+                var gl = renderer.context;
+                var shader = gl.createShader(type);
+                var src = editor.getDoc().getValue();
+
+                var prefix = "";
+                if (type == gl.VERTEX_SHADER)
+                    prefix = $("#vertex_prefix").text();
+                else
+                    prefix = $("#fragment_prefix").text();
+
+                gl.shaderSource(shader, prefix + src);
+                gl.compileShader(shader);
+
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    console.log(gl.getShaderParameter(shader, gl.COMPILE_STATUS));
+                    return false;
+                }
+
+                return true;
+            }
+
+            function applyShaderIfCompiles() {
+                var gl = renderer.context;
+                if (compileShader(vertEditor, gl.VERTEX_SHADER) && compileShader(fragEditor, gl.FRAGMENT_SHADER))
+                    createMesh();
+            }
+
+            function createMesh() {
+                if (compute.mesh) {
+                    compute.scene.remove(compute.mesh);
+                }
+
+                compute.material = new THREE.ShaderMaterial({ 
+                    uniforms: compute.shaderParameters,
+                    vertexShader: vertEditor.getDoc().getValue(),
+                    fragmentShader: fragEditor.getDoc().getValue()
+                });
+
+                var geometry = new THREE.PlaneBufferGeometry(1, 1, 1, 1);
+                // geometry.computeTangents();
+                compute.mesh = new THREE.Mesh(geometry, compute.material);
+                compute.scene.add(compute.mesh);
+            }
+
+            function initData() {
+                compute.data = new Float32Array(SIM_RESOLUTION*SIM_RESOLUTION*3);
+                for(var x=0; x<SIM_RESOLUTION; x++) {
+                    for(var y=0; y<SIM_RESOLUTION; y++) {
+                        var portion = 4;
+                        var low = 1/2 * 1/portion + 1/portion;
+                        var high = low + 1/portion;
+                        var middle = x > low*SIM_RESOLUTION
+                            && x < high*SIM_RESOLUTION
+                            && y > low*SIM_RESOLUTION
+                            && y < high*SIM_RESOLUTION;
+                        compute.data[(x + SIM_RESOLUTION * y)*3 + 0] = 1.0;
+                        compute.data[(x + SIM_RESOLUTION * y)*3 + 1] = middle? 1.0 : 0.0;
+                        compute.data[(x + SIM_RESOLUTION * y)*3 + 2] = 0.0;
+                    }
+                }
+                return new THREE.DataTexture(compute.data, SIM_RESOLUTION, SIM_RESOLUTION, THREE.RGBFormat, THREE.FloatType);
+            }
+
+            function stepSim() {
+                renderer.render( compute.scene, compute.camera, compute.renderTexture, true );
+
+                var tmp = compute.buffer[1];
+                compute.buffer[1] = compute.buffer[0];
+                compute.buffer[0] = tmp;
+                compute.shaderParameters.texture.value = compute.buffer[1];
+                compute.renderTexture = compute.buffer[0];
+                display.shaderParameters.texture.value = compute.buffer[1];
+            }
+
+            function initCompute(width, height) {
+                // create data for sim, attach to shader input
+                compute.initialTexture = initData();
+
+                compute.buffer[0]  = new THREE.WebGLRenderTarget(SIM_RESOLUTION, SIM_RESOLUTION, compute.renderTextureParameters);
+                compute.buffer[1] = new THREE.WebGLRenderTarget(SIM_RESOLUTION, SIM_RESOLUTION, compute.renderTextureParameters);
+                compute.renderTexture = compute.buffer[0];
+
+                compute.shaderParameters.texture.value = compute.initialTexture;
+                compute.initialTexture.needsUpdate = true;
+
+                compute.renderTexture = compute.buffer[0];
+                compute.camera = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 1, 10);
+                compute.camera.position.z = 2;
+                compute.scene = new THREE.Scene();
+                createMesh();
+            }
+
+            function init() {
+                var view_width = window.innerWidth-$(".editor").outerWidth();
+                var view_height = window.innerHeight;
+
+                renderer = new THREE.WebGLRenderer();
+                renderer.setSize( view_width, view_height );
+                $(".viewer").append( renderer.domElement );
+
+                initCompute(512, 512);
+
+                display.camera = new THREE.PerspectiveCamera( 70, view_width / view_height, 0.1, 10 );
+                display.camera.position.z = 1;
+                display.scene = new THREE.Scene();
+                var geo = new THREE.PlaneBufferGeometry(1, 1, 1, 1);
+                display.shaderParameters = {
+                    texture: {
+                        type: "t",
+                        value: compute.renderTexture
+                    },
+                };
+                display.material = new THREE.ShaderMaterial({
+                    uniforms: display.shaderParameters,
+                    vertexShader: $("#display-shader .vert")[0].textContent,
+                    fragmentShader: $("#display-shader .frag")[0].textContent
+                });
+                display.mesh = new THREE.Mesh(geo, display.material);
+                display.scene.add(display.mesh);
+
+                window.addEventListener( 'resize', onWindowResize, false );
+            }
+
+            function onWindowResize() {
+                var view_width = window.innerWidth-$(".editor").outerWidth();
+                var view_height = window.innerHeight;
+
+                display.camera.aspect = (view_width / view_height);
+                display.camera.updateProjectionMatrix();
+
+                renderer.setSize(view_width, view_height);
+            }
+
+            function animate() {
+                requestAnimationFrame( animate );
+
+                compute.shaderParameters.time.value += 0.01;
+                compute.shaderParameters.time.needsUpdate = true;
+
+                compute.shaderParameters.delta_time.value = 1.0; // KS says dt = 1.0 works well. may want to scale up actual dt
+                compute.shaderParameters.delta_time.needsUpdate = true;
+
+                // update computation
+                stepSim();
+                stepSim();
+                stepSim();
+                stepSim();
+
+                // display computation on screen
+                renderer.render( display.scene, display.camera );
+            }
+
+            function getActiveProgram() {
+                return $("select option:selected").val();
+            }
+
+            function copyProgramsToEditor() {
+                var program = getActiveProgram();
+                fragEditor.getDoc().setValue($("#"+program+" .frag").text());
+                vertEditor.getDoc().setValue($("#"+program+" .vert").text());
+            }
+
+            function applySelectedShaders() {
+                copyProgramsToEditor();
+                createMesh();
+            }
+
+            $("select").change(applySelectedShaders);
+
+            $("#apply").click(createMesh);
+            $(function() {
+                vertEditor = CodeMirror(document.getElementById("vertexShaderEditor"),
+                    {
+                        mode: "x-shader/x-vertex",
+                        indentUnit: 4,
+                        theme: "twilight"
+                    }
+                );
+
+                fragEditor = CodeMirror(document.getElementById("fragmentShaderEditor"),
+                    {
+                        mode: "x-shader/x-fragment",
+                        indentUnit: 4,
+                        theme: "twilight"
+                    }
+                );
+
+                copyProgramsToEditor();
+
+                vertEditor.on("change", applyShaderIfCompiles);
+                fragEditor.on("change", applyShaderIfCompiles);
+            });
+
+            $(main);
+        </script>
+    </body>
+</html>
