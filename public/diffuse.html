@@ -108,6 +108,9 @@ void main() {
         B_prime = B + (B_diffuse * L_B + A*pow(B,2.0) - (B_kill_rate+A_feed_rate) * B) * delta_time;
     }
 
+    A_prime = clamp(A_prime, 0.0, 1.0);
+    B_prime = clamp(B_prime, 0.0, 1.0);
+
     gl_FragColor = vec4(A_prime, B_prime, 0.0, 1.0);
 }
             </div>
@@ -126,14 +129,40 @@ void main() {
 uniform sampler2D texture;
 uniform vec3 A_color;
 uniform vec3 B_color;
+uniform vec3 light_color;
+uniform int resolution;
+uniform float specular_coefficient;
+uniform float specular_power;
 
 varying vec3 v_normal;
 varying vec2 v_uv;
 
+// samples around a 3x3 grid with x,y being grid coordinates, at a step of step
+vec3 sample(float step, float x, float y) {
+    float step_u = step * (x-1.0);
+    float step_v = step * (y-1.0);
+    return texture2D(texture, v_uv+vec2(step_u, step_v)).rgb;
+}
+
+float getValue(vec2 uv) {
+    vec3 data = texture2D(texture, uv).rgb;
+    return smoothstep(0.0, 0.4, data.g);
+}
+
+vec3 calculateNormal() {
+    float step = 1.0/float(resolution);
+
+    float dx = ( sample(step, 1.0, 0.0).g - sample(step, 1.0, 2.0).g);
+    float dy = ( sample(step, 2.0, 1.0).g - sample(step, 0.0, 1.0).g );
+
+    return normalize(vec3(dx, dy, getValue(v_uv) - 0.5));
+}
+
 void main() {
-    vec3 data = texture2D(texture, v_uv).rgb;
-    vec3 color = mix(A_color, B_color, smoothstep(0.0, 0.4, data.g));
-    gl_FragColor = vec4(color, 1.0);
+    vec3 color = mix(A_color, B_color, getValue(v_uv));
+
+    vec3 spec = light_color * specular_coefficient * pow(clamp(dot(calculateNormal(), normalize(vec3(1.0, 1.0, 1.2))), 0.0, 1.0), specular_power);
+    gl_FragColor = vec4(spec + color, 1.0);
 }
             </div>
         </div>
@@ -171,7 +200,28 @@ void main() {
                     "B_color": {
                         type: 'c',
                         value: (new THREE.Color(0x0064aa))
-                    }
+                    },
+                    "light_color": {
+                        type: 'c',
+                        value: (new THREE.Color(0x0064aa))
+                    },
+                    "resolution": {
+                        type: 'i',
+                        value: SIM_RESOLUTION,
+                        hidden: true
+                    },
+                    "specular_power": {
+                        type: 'f',
+                        value: 5.0,
+                        min: 2.0,
+                        max: 128.0
+                    },
+                    "specular_coefficient": {
+                        type: 'f',
+                        value: 1.0,
+                        min: 0.0,
+                        max: 8.0
+                    },
                 }
             };
 
@@ -305,7 +355,7 @@ void main() {
                             guiParamsDisplay[name] = param.value;
                     });
 
-                    $.each(display.shaderParameters, function(name, param) {
+                    $.each(guiParamsDisplay, function(name, param) {
                         if (display.shaderParameters[name].type == "c") { // color-formatted strings must be converted
                             displayFolder.addColor(guiParamsDisplay, name).onChange(function(v) {
                                 display.shaderParameters[name].value.setHex(fromHexString(v));
