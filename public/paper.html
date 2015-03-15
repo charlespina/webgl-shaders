@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Paper</title>
+        <link rel="stylesheet" href="css/codemirror.css">
+        <link rel="stylesheet" href="css/theme/twilight.css">
+        <meta charset="utf-8">
+        <style>
+            body {
+                margin: 0px;
+                background-color: #000;
+                overflow: hidden;
+                color: white;
+            }
+
+            h1 {
+                font-family: Monaco;
+                font-size: 14px;
+                padding-left: 5px;
+            }
+
+            pre {
+                border: 1px solid #333;
+                padding: 5px;
+                margin: 5px;
+            }
+
+            .program, .hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- shader programs -->
+        <div class="program" id="display-shader">
+            <div class="vert">
+attribute vec3 vert_coord;
+
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying vec3 barycentric_coord;
+
+void main() {
+    v_uv = uv;
+    v_normal = normalMatrix * normal;
+    barycentric_coord = vert_coord;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+            </div>
+            <div class="frag">
+
+#extension GL_OES_standard_derivatives : enable
+uniform vec3 color;
+uniform vec3 light_color;
+
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying vec3 barycentric_coord;
+
+float edgeFactor() {
+    vec3 d = fwidth(barycentric_coord);
+    vec3 a3 = smoothstep(vec3(0.0), d*1.5, barycentric_coord);
+    return min(min(a3.x, a3.y), a3.z);
+}
+
+void main() {
+    vec3 light_dir = normalize(vec3(1.0, 1.0, 1.0));
+    float diffuse = max(dot(light_dir, normalize(v_normal)), 0.0);
+    float edge = smoothstep(0.5, 0.0, edgeFactor());
+
+    gl_FragColor = vec4(vec3(edge) + diffuse*color, 1.0);
+}
+            </div>
+        </div>
+        <!-- //shader programs -->
+
+        <div class="viewer">
+        </div>
+
+        <script src="//localhost:35729/livereload.js"></script>
+        <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+        <script src="http://threejs.org/build/three.min.js"></script>
+        <script src="js/dat.gui.min.js"></script>
+        <script src="js/OBJLoader.js"></script>
+
+        <script>
+            var SIM_RESOLUTION = 512;
+            var globalParameters = {
+                speed: 5
+            };
+
+            var mouse = { pressed: false, x: 1, y: 1 };
+            var renderer;
+            var display = {
+                mesh: null,
+                material: null,
+                camera: null,
+                mesh: null,
+                scene: null,
+                shaderParameters: {
+                    "color": {
+                        type: 'c',
+                        value: (new THREE.Color(0xAAAABB))
+                    },
+                    "light_color": {
+                        type: 'c',
+                        value: (new THREE.Color(0x0064aa))
+                    },
+                }
+            };
+
+            function setupGui() {
+                var gui = new dat.gui.GUI();
+
+                // display parameters
+                {
+                    var displayFolder = gui.addFolder('Display');
+                    displayFolder.open();
+                    var guiParamsDisplay= {};
+                    $.each(display.shaderParameters, function(name, param) {
+                        if (param.hidden) return;
+                        if (param.type == "c") {
+                            guiParamsDisplay[name] = "#"+param.value.getHexString();
+                        } else if (param.type != "t")
+                            guiParamsDisplay[name] = param.value;
+                    });
+
+                    $.each(guiParamsDisplay, function(name, param) {
+                        if (display.shaderParameters[name].type == "c") { // color-formatted strings must be converted
+                            displayFolder.addColor(guiParamsDisplay, name).onChange(function(v) {
+                                display.shaderParameters[name].value.setHex(fromHexString(v));
+                                display.shaderParameters[name].needsUpdate = true;
+                            });
+                        } else {
+                            displayFolder.add(guiParamsDisplay, name, 
+                                display.shaderParameters[name].min, 
+                                display.shaderParameters[name].max).onChange(function(v) {
+                                    display.shaderParameters[name].value = v;
+                                    display.shaderParameters[name].needsUpdate = true;
+                                }
+                            );
+                        }
+                    });
+                }
+            }
+
+            function main() {
+                setupGui();
+                init();
+                animate();
+            }
+
+            function fromHexString(color) {
+                return color.replace('#', '0x');
+            }
+
+            function init() {
+                var view_width = window.innerWidth;
+                var view_height = window.innerHeight;
+
+                renderer = new THREE.WebGLRenderer();
+                renderer.setSize( view_width, view_height );
+                $(".viewer").append( renderer.domElement );
+
+                display.camera = new THREE.PerspectiveCamera( 30, view_width / view_height, 0.1, 100);
+                display.camera.position.z = 1;
+                display.scene = new THREE.Scene();
+
+                display.material = new THREE.ShaderMaterial({
+                    uniforms: display.shaderParameters,
+                    attributes: {
+                        vert_coord: {
+                            type: 'v3',
+                            value: []
+                        }
+                    },
+                    vertexShader: $("#display-shader .vert")[0].textContent,
+                    fragmentShader: $("#display-shader .frag")[0].textContent
+                });
+
+                // model
+                var loader = new THREE.OBJLoader();
+                var objFile = 'obj/male.obj';
+                loader.load(objFile, function(obj) {
+                    var bounds = new THREE.Box3();
+
+                    obj.traverse(function(child) {
+                        if (child instanceof THREE.Mesh) {
+                            console.log(child.geometry);
+                            var vertData = child.geometry.getAttribute('position').array;
+                            var vertCoords = new Float32Array(vertData.length);
+                            var counter=0;
+                            var ortho = [
+                                [1, 0, 0],
+                                [0, 1, 0],
+                                [0, 0, 1]
+                            ];
+                            for(var v=0; v < vertData.length; v+=3) {
+                                counter++;
+                                var c = ortho[counter%3];
+                                vertCoords[v] = c[0]
+                                vertCoords[v+1] = c[1];
+                                vertCoords[v+2] = c[2];
+                            }
+
+                            child.material = display.material;
+                            child.geometry.addAttribute('vert_coord', new THREE.BufferAttribute(vertCoords, 3));
+
+                            // update the character's overall bounding box
+                            child.geometry.computeBoundingBox();
+                            bounds.union(child.geometry.boundingBox);
+                        }
+                    });
+
+                    obj.scale.x = 1/(bounds.max.x - bounds.min.x);
+                    obj.scale.y = 1/(bounds.max.y - bounds.min.y);
+                    obj.scale.z = 1/(bounds.max.z - bounds.min.z);
+
+                    obj.position.z = -1.5;
+                    obj.position.y = -0.5;
+                
+                    display.scene.add(obj);
+                    window.obj = obj;
+                });
+
+                $(window).resize(onWindowResize);
+                $(document).mousemove(onMouseMove);
+                $(document).mouseup(onMouseUp);
+                $(document).mousedown(onMouseDown);
+            }
+
+            function onWindowResize() {
+                var view_width = window.innerWidth;
+                var view_height = window.innerHeight;
+
+                display.camera.aspect = (view_width / view_height);
+                display.camera.updateProjectionMatrix();
+
+                renderer.setSize(view_width, view_height);
+            }
+
+            function animate() {
+                requestAnimationFrame( animate );
+
+                // display computation on screen
+                renderer.render( display.scene, display.camera );
+            }
+
+            function onMouseUp(event) {
+                mouse.pressed = false;
+                event.preventDefault();
+            }
+
+            function onMouseDown(event) {
+                mouse.pressed = true;
+                event.preventDefault();
+            }
+
+            function onMouseMove(event) {
+                event.preventDefault();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y =  1 - (event.clientY / window.innerHeight) * 2;
+            }
+
+            $(main);
+        </script>
+    </body>
+</html>
