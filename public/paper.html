@@ -35,16 +35,22 @@
         <div class="program" id="display-shader">
             <div class="vert">
 attribute vec3 vert_coord;
+attribute vec3 face_normal;
 
 varying vec3 v_normal;
+varying vec3 v_face_normal;
 varying vec2 v_uv;
 varying vec3 barycentric_coord;
+varying vec3 P;
 
 void main() {
     v_uv = uv;
     v_normal = normalMatrix * normal;
+    v_face_normal = normalMatrix * face_normal;
     barycentric_coord = vert_coord;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 P4 = modelViewMatrix * vec4(position, 1.0);
+    P = P4.xyz;
+    gl_Position = projectionMatrix * P4;
 }
             </div>
             <div class="frag">
@@ -52,10 +58,16 @@ void main() {
 #extension GL_OES_standard_derivatives : enable
 uniform vec3 color;
 uniform vec3 light_color;
+uniform float specular_power;
+uniform float specular_coefficient;
+uniform sampler2D ao_map;
+uniform sampler2D curvature_map;
 
 varying vec3 v_normal;
+varying vec3 v_face_normal;
 varying vec2 v_uv;
 varying vec3 barycentric_coord;
+varying vec3 P;
 
 float edgeFactor() {
     vec3 d = fwidth(barycentric_coord);
@@ -63,12 +75,31 @@ float edgeFactor() {
     return min(min(a3.x, a3.y), a3.z);
 }
 
-void main() {
-    vec3 light_dir = normalize(vec3(1.0, 1.0, 1.0));
-    float diffuse = max(dot(light_dir, normalize(v_normal)), 0.0);
-    float edge = smoothstep(0.5, 0.0, edgeFactor());
+float spec(vec3 N, vec3 H, vec3 L, float ao) {
+    float NdH = clamp(dot(N,H), 0.0, 1.0);
+    return specular_coefficient * pow(NdH, specular_power) * ao;
+}
 
-    gl_FragColor = vec4(vec3(edge) + diffuse*color, 1.0);
+void main() {
+    vec3 L = normalize(vec3(1.0, 1.0, 1.0));
+    vec3 Nface = normalize(v_face_normal);
+    vec3 Nvert = normalize(v_normal);
+    vec3 V = -P;
+    float Dface = max(dot(Nface, L), 0.0);
+    float Dvert = max(dot(Nvert, L), 0.0);
+    float edge = smoothstep(0.0, 0.3, edgeFactor());
+    float ao = texture2D(ao_map, v_uv).r;
+    float curvature = texture2D(curvature_map, v_uv).r;
+    float curve_crease = 1.0 - smoothstep(0.5, 0.7, curvature) * (1.0-edge);
+
+    vec3 H = normalize(V+L);
+    float flat_spec = spec(Nface, H, L, ao);
+    float smooth_spec = spec(Nvert, H, L, ao);
+
+    float final_spec = mix(0.3*smooth_spec, flat_spec, edge);
+    float final_diffuse = Dface; //mix(0.8*Dvert, Dface, edge);
+
+    gl_FragColor = vec4(vec3(final_spec)+final_diffuse*ao*color+vec3(0.05, 0.05, 0.1), 1.0);
 }
             </div>
         </div>
@@ -98,9 +129,17 @@ void main() {
                 mesh: null,
                 scene: null,
                 shaderParameters: {
+                    "specular_power": {
+                        type: 'f',
+                        value: 16
+                    },
+                    "specular_coefficient": {
+                        type: 'f',
+                        value: 0.08
+                    },
                     "color": {
                         type: 'c',
-                        value: (new THREE.Color(0xAAAABB))
+                        value: (new THREE.Color(0x49389B))
                     },
                     "light_color": {
                         type: 'c',
@@ -162,49 +201,66 @@ void main() {
                 renderer.setSize( view_width, view_height );
                 $(".viewer").append( renderer.domElement );
 
-                display.camera = new THREE.PerspectiveCamera( 30, view_width / view_height, 0.1, 100);
+                display.camera = new THREE.PerspectiveCamera( 20, view_width / view_height, 0.1, 100);
                 display.camera.position.z = 1;
                 display.scene = new THREE.Scene();
 
-                display.material = new THREE.ShaderMaterial({
-                    uniforms: display.shaderParameters,
+                var uniforms = display.shaderParameters;
+                uniforms.ao_map = {
+                    type: 't',
+                    value: new THREE.ImageUtils.loadTexture('textures/male_AO_body.png')
+                };
+
+                uniforms.curvature_map = {
+                    type: 't',
+                    value: new THREE.ImageUtils.loadTexture('textures/male_C_body.png')
+                };
+
+                var bodyMaterial = new THREE.ShaderMaterial({
+                    uniforms: uniforms,
                     attributes: {
                         vert_coord: {
                             type: 'v3',
                             value: []
-                        }
+                        },
+
+                        face_normal: {
+                            type: 'v3',
+                            value: []
+                        },
                     },
                     vertexShader: $("#display-shader .vert")[0].textContent,
                     fragmentShader: $("#display-shader .frag")[0].textContent
                 });
 
+                var hairMaterial = bodyMaterial.clone();
+                hairMaterial.uniforms.ao_map.value = THREE.ImageUtils.loadTexture('textures/male_AO_hair.png');
+                hairMaterial.uniforms.curvature_map.value = THREE.ImageUtils.loadTexture('textures/male_C_hair.png');
+                hairMaterial.uniforms.color.value = new THREE.Color(0x880044);
+
+                var faceMaterial = bodyMaterial.clone();
+                faceMaterial.uniforms.ao_map.value = THREE.ImageUtils.loadTexture('textures/male_AO_face.png');
+                faceMaterial.uniforms.curvature_map.value = THREE.ImageUtils.loadTexture('textures/male_C_face.png');
+                faceMaterial.uniforms.color.value = new THREE.Color(0xbbaaaa);
+
                 // model
                 var loader = new THREE.OBJLoader();
-                var objFile = 'obj/male.obj';
+                var objFile = 'obj/male-improved.obj';
                 loader.load(objFile, function(obj) {
                     var bounds = new THREE.Box3();
 
                     obj.traverse(function(child) {
                         if (child instanceof THREE.Mesh) {
-                            console.log(child.geometry);
-                            var vertData = child.geometry.getAttribute('position').array;
-                            var vertCoords = new Float32Array(vertData.length);
-                            var counter=0;
-                            var ortho = [
-                                [1, 0, 0],
-                                [0, 1, 0],
-                                [0, 0, 1]
-                            ];
-                            for(var v=0; v < vertData.length; v+=3) {
-                                counter++;
-                                var c = ortho[counter%3];
-                                vertCoords[v] = c[0]
-                                vertCoords[v+1] = c[1];
-                                vertCoords[v+2] = c[2];
-                            }
+                            if (child.name == "Hair")
+                                child.material = hairMaterial;
+                            else if (child.name == "Face")
+                                child.material = faceMaterial;
+                            else
+                                child.material = bodyMaterial;
 
-                            child.material = display.material;
-                            child.geometry.addAttribute('vert_coord', new THREE.BufferAttribute(vertCoords, 3));
+                            addVertexCoordinates(child.geometry);
+                            addFaceNormals(child.geometry);
+                            //calculateCreases(child.geometry);
 
                             // update the character's overall bounding box
                             child.geometry.computeBoundingBox();
@@ -212,21 +268,91 @@ void main() {
                         }
                     });
 
-                    obj.scale.x = 1/(bounds.max.x - bounds.min.x);
+                    obj.scale.x = 1/(bounds.max.y - bounds.min.y);
                     obj.scale.y = 1/(bounds.max.y - bounds.min.y);
-                    obj.scale.z = 1/(bounds.max.z - bounds.min.z);
+                    obj.scale.z = 1/(bounds.max.y - bounds.min.y);
 
-                    obj.position.z = -1.5;
+                    obj.position.z = -2.0;
                     obj.position.y = -0.5;
                 
+                    display.mesh = obj;
                     display.scene.add(obj);
-                    window.obj = obj;
                 });
 
                 $(window).resize(onWindowResize);
                 $(document).mousemove(onMouseMove);
                 $(document).mouseup(onMouseUp);
                 $(document).mousedown(onMouseDown);
+            }
+
+            function addVertexCoordinates(geo) {
+                var vertData = geo.getAttribute('position').array;
+                var vertCoords = new Float32Array(vertData.length);
+
+                var counter=0;
+
+                var ortho = [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1]
+                ];
+
+                for(var v=0; v < vertData.length; v+=3) {
+                    counter++;
+                    var c = ortho[counter%3];
+                    vertCoords[v] = c[0]
+                    vertCoords[v+1] = c[1];
+                    vertCoords[v+2] = c[2];
+                }
+
+                geo.addAttribute('vert_coord', new THREE.BufferAttribute(vertCoords, 3));
+            }
+
+            function addFaceNormals(geo) {
+                var faceNormals = new Float32Array(geo.getAttribute('position').array.length);
+
+                var a = new THREE.Vector3();
+                var b = new THREE.Vector3();
+                var c = new THREE.Vector3();
+                var AB = new THREE.Vector3();
+                var AC = new THREE.Vector3();
+                var N = new THREE.Vector3();
+                var Na = new THREE.Vector3();
+                var Nb = new THREE.Vector3();
+                var Nc = new THREE.Vector3();
+
+                for (var faceId = 0; faceId < geo.source.faces.length; faceId++) {
+                    var face = geo.source.faces[faceId];
+                    var aid = face[0];
+                    var bid = face[1];
+                    var cid = face[2];
+
+                    a.set(geo.source.vertices[aid], geo.source.vertices[aid+1], geo.source.vertices[aid+2]);
+                    Na.set(geo.source.normals[aid], geo.source.normals[aid+1], geo.source.normals[aid+2]).normalize();
+                    b.set(geo.source.vertices[bid], geo.source.vertices[bid+1], geo.source.vertices[bid+2]);
+                    Nb.set(geo.source.normals[bid], geo.source.normals[bid+1], geo.source.normals[bid+2]).normalize();
+                    c.set(geo.source.vertices[cid], geo.source.vertices[cid+1], geo.source.vertices[cid+2]);
+                    Nc.set(geo.source.normals[bid], geo.source.normals[bid+1], geo.source.normals[bid+2]).normalize();
+
+                    AB.subVectors(a,b);
+                    AC.subVectors(a,c);
+                    N.crossVectors(AB,AC);
+                    N.normalize();
+
+                    faceNormals[faceId*9] = N.x;
+                    faceNormals[faceId*9+1] = N.y;
+                    faceNormals[faceId*9+2] = N.z;
+
+                    faceNormals[faceId*9+3] = N.x;
+                    faceNormals[faceId*9+4] = N.y;
+                    faceNormals[faceId*9+5] = N.z;
+
+                    faceNormals[faceId*9+6] = N.x;
+                    faceNormals[faceId*9+7] = N.y;
+                    faceNormals[faceId*9+8] = N.z;
+                }
+
+                geo.addAttribute("face_normal", new THREE.BufferAttribute(faceNormals, 3));
             }
 
             function onWindowResize() {
@@ -241,6 +367,9 @@ void main() {
 
             function animate() {
                 requestAnimationFrame( animate );
+
+                if (display.mesh)
+                    display.mesh.rotation.y += 0.005;
 
                 // display computation on screen
                 renderer.render( display.scene, display.camera );

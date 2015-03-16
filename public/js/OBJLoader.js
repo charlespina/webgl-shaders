@@ -58,6 +58,7 @@ THREE.OBJLoader.prototype = {
         }
 
         function addVertex( a, b, c ) {
+            geometry.faces.push([a,b,c]);
 
             geometry.vertices.push(
                 vertices[ a ], vertices[ a + 1 ], vertices[ a + 2 ],
@@ -101,6 +102,7 @@ THREE.OBJLoader.prototype = {
 
                 var id = parseVertexIndex( d );
 
+                // turn quad into two triangles
                 addVertex( ia, ib, id );
                 addVertex( ib, ic, id );
 
@@ -290,6 +292,7 @@ THREE.OBJLoader.prototype = {
             } else if ( /^o /.test( line ) ) {
 
                 geometry = {
+                    faces: [],
                     vertices: [],
                     normals: [],
                     uvs: []
@@ -351,6 +354,15 @@ THREE.OBJLoader.prototype = {
             if ( geometry.uvs.length > 0 ) {
                 buffergeometry.addAttribute( 'uv', new THREE.BufferAttribute( new Float32Array( geometry.uvs ), 2 ) );
             }
+
+            // add information about the originating faces, so the data can be used to group the vertices.
+            // buffergeometry doesn't have enough metadata on its own
+            buffergeometry.source = {
+              faces: geometry.faces,
+              normals: normals,
+              vertices: vertices,
+              uvs: uvs
+            };
 
             var material = new THREE.MeshLambertMaterial();
             material.name = object.material.name;
