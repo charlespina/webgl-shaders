@@ -34,10 +34,12 @@
         <!-- shader programs -->
         <div class="program" id="display-shader">
             <div class="vert">
+attribute vec4 tangent;
 varying vec3 v_normal;
 varying vec2 v_uv;
 varying vec3 P;
 varying mat4 v_model_view_matrix;
+varying mat3 TBN;
 
 void main() {
     v_uv = uv;
@@ -45,14 +47,27 @@ void main() {
     vec4 P4 = modelViewMatrix * vec4(position, 1.0);
     v_model_view_matrix = modelViewMatrix;
     P = P4.xyz;
+
+    vec3 N = normalize(normalMatrix * normal);
+    vec3 T = normalize(normalMatrix * tangent.xyz);
+    vec3 B = normalize(normalMatrix * cross(normal, tangent.xyz) * tangent.w);
+    TBN = mat3(
+       T.x, T.y, T.z,
+       B.x, B.y, B.z,
+       N.x, N.y, N.z
+    );
+
     gl_Position = projectionMatrix * P4;
 }
             </div>
             <div class="frag">
-uniform vec3 base_color_tint;
+uniform vec3 base_color_constant;
 uniform sampler2D base_color_map;
 
+uniform float roughness_constant;
 uniform sampler2D roughness_map;
+
+uniform sampler2D normal_map;
 
 uniform float light_intensity;
 uniform vec3 light_color;
@@ -67,6 +82,15 @@ varying mat4 v_model_view_matrix;
 varying vec3 v_normal;
 varying vec2 v_uv;
 varying vec3 P;
+
+varying mat3 TBN;
+
+vec3 getNormal() {
+    vec3 Nm = texture2D(normal_map, v_uv).xyz;
+    Nm *= 2.0;
+    Nm -= vec3(1.0);
+    return normalize(TBN * Nm);
+}
 
 #define PI 3.14159
 #define MIN 0.0001
@@ -179,13 +203,20 @@ void main() {
     vec3(0.5, 1.0, 1.0),
     0.5);
 
+#define USE_TEXTURES
+#ifdef USE_TEXTURES
   vec3 color_linear = degamma(texture2D(base_color_map, v_uv).rgb);
-
+  vec3 N = getNormal();
+  float roughness = texture2D(roughness_map, v_uv).r;
+#else
+  vec3 color_linear = degamma(base_color_constant);
   vec3 N = normalize(v_normal);
+  float roughness = roughness_constant;
+#endif
+
   vec3 V = normalize(-P);
   float NdV = max(dot(N,V), 0.0);
 
-  float roughness = texture2D(roughness_map, v_uv).r;
 
   float alpha = roughness * roughness;
   float alpha2 = alpha * alpha;
@@ -227,11 +258,11 @@ void main() {
 
     // Substance designer uses F0 to calculate energy conservation,
     // but I don't think that's correct.
+    diffuse_color *= vec3(1.0, 1.0, 1.0) - F0;
 
-    // diffuse_color *= vec3(1.0, 1.0, 1.0) - F0;
-
-    // Better to use roughness to calculate energy conservation? Let's discuss
-    diffuse_color *= vec3(roughness, roughness, roughness);
+    // Better to use roughness to calculate energy conservation? Let's discuss.
+    // One con is that it affects the color that the artist may have authored
+    //diffuse_color *= vec3(roughness, roughness, roughness);
 
     accumulated_light += (specular_contribution + diffuse_color)
       * NdL * lights[i].color * lights[i].intensity;
@@ -264,6 +295,16 @@ void main() {
                       value: 0.0,
                       hidden: true,
                     },
+                    "normal_map": {
+                      type: 't',
+                      value: THREE.ImageUtils.loadTexture("textures/fuse_char_Normal.png")
+                    },
+                    "roughness_constant": {
+                      type: 'f',
+                      value: 0.5,
+                      min: 0.0,
+                      max: 1.0
+                    },
                     "roughness_map": {
                       type: 't',
                       value: THREE.ImageUtils.loadTexture("textures/fuse_char_Roughness.png")
@@ -284,7 +325,7 @@ void main() {
                       type: 't',
                       value: THREE.ImageUtils.loadTexture("textures/fuse_char_BaseColor.png")
                     },
-                    "base_color_tint": {
+                    "base_color_constant": {
                       type: 'c',
                       value: (new THREE.Color(0x49389B))
                     },
