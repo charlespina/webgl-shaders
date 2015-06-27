@@ -1,0 +1,438 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Physically Based Rendering</title>
+        <link rel="stylesheet" href="css/codemirror.css">
+        <link rel="stylesheet" href="css/theme/twilight.css">
+        <meta charset="utf-8">
+        <style>
+            body {
+                margin: 0px;
+                background-color: #000;
+                overflow: hidden;
+                color: white;
+            }
+
+            h1 {
+                font-family: Monaco;
+                font-size: 14px;
+                padding-left: 5px;
+            }
+
+            pre {
+                border: 1px solid #333;
+                padding: 5px;
+                margin: 5px;
+            }
+
+            .program, .hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- shader programs -->
+        <div class="program" id="display-shader">
+            <div class="vert">
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying vec3 P;
+varying mat4 v_model_view_matrix;
+
+void main() {
+    v_uv = uv;
+    v_normal = normalMatrix * normal;
+    vec4 P4 = modelViewMatrix * vec4(position, 1.0);
+    v_model_view_matrix = modelViewMatrix;
+    P = P4.xyz;
+    gl_Position = projectionMatrix * P4;
+}
+            </div>
+            <div class="frag">
+uniform vec3 base_color_tint;
+uniform sampler2D base_color_map;
+
+uniform sampler2D roughness_map;
+
+uniform float light_intensity;
+uniform vec3 light_color;
+uniform vec3 light_direction;
+
+uniform float metalicity;
+uniform float specular_level;
+
+uniform float t;
+
+varying mat4 v_model_view_matrix;
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying vec3 P;
+
+#define PI 3.14159
+#define MIN 0.0001
+#define NUM_LIGHTS 3
+
+// Unreal GGX implementation (Unreal SIGGRAPH 2013)
+// http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
+
+// Schlick approximation
+vec3 FresnelTerm(float VdH, vec3 F0) {
+  return F0 + (vec3(1.0, 1.0, 1.0)-F0) * pow(2.0, (-5.55473*VdH-6.98316)*VdH);
+}
+
+float GeometryTerm(float Roughness, vec3 V, vec3 N, vec3 H) {
+  float NdV = max(0.0, dot(N,V));
+  float k = pow(Roughness + 1.0, 2.0);
+  return NdV/((NdV)*(1.0-k)+k);
+}
+
+float DistributionTerm(float NdH, float alpha2) {
+  float D_denominator = PI * ((NdH*NdH)*(alpha2-1.0)+1.0);
+  return alpha2/(D_denominator * D_denominator);
+}
+
+// Alternate GGX implementation
+// http://www.codinglabs.net/article_physically_based_rendering_cook_torrance.aspx
+float Chi(float x)
+{
+  return x > 0.0 ? 1.0 : 0.0;
+}
+
+float GeometryTerm_Alternate(float Roughness, vec3 V, vec3 N, vec3 H)
+{
+  float alpha = Roughness * Roughness;
+  float VdH = max(0.0, (dot(V, H)));
+  float VdH2 = VdH*VdH;
+  float x = Chi(VdH/max(0.00001, (dot(V,N))));
+  float tan2 = (1.0-VdH2)/VdH2;
+  return (x*2.0)/(1.0+sqrt(1.0+alpha*alpha*tan2));
+}
+
+float DistributionTerm_Alternate(float NdH, float alpha2)
+{
+	float NdH2 = NdH*NdH;
+	float D_denominator = (NdH2*alpha2)+(1.0-NdH2);
+	return (Chi(NdH)*alpha2)/(3.141592653*D_denominator*D_denominator);
+}
+
+vec3 FresnelTerm_Schlick(float VdH, vec3 F0) {
+  return F0 + (vec3(1.0, 1.0, 1.0)-F0) * pow(1.0-VdH, 5.0);
+}
+
+vec3 degamma(vec3 color) {
+  return pow(color, vec3(2.2, 2.2, 2.2));
+}
+
+vec3 gamma(vec3 color) {
+  return pow(color, vec3(0.4545, 0.4545, 0.4545));
+}
+
+struct Light {
+  vec3 dir;
+  vec3 color;
+  float intensity;
+};
+
+Light lights[NUM_LIGHTS];
+
+struct ColorStep {
+  float t;
+  vec3 color;
+};
+
+#define NUM_COLOR_STEPS 2
+ColorStep steps[NUM_COLOR_STEPS];
+
+vec3 gradient(float t) {
+  return vec3(0.1, 0.1, 0.1);
+
+  steps[0] = ColorStep(0.5, vec3(0.1, 0.1, 0.1));
+  steps[1] = ColorStep(1.0, vec3(1.0, 1.0, 1.0));
+
+  if (t < steps[0].t) {
+    return steps[0].color;
+  }
+
+  for (int i=1; i &lt; NUM_COLOR_STEPS; i++) {
+    if (t < steps[i].t) {
+      float amount = (t-steps[i-1].t) * 1.0/(steps[i].t-steps[i-1].t);
+      return smoothstep(
+        steps[i-1].color,
+        steps[i].color,
+        vec3(amount, amount, amount)
+      );
+    }
+  }
+}
+
+void main() {
+  vec3 color_to_light_dir = 2.0 * light_direction - vec3(1.0, 1.0, 1.0);
+  lights[0] = Light(normalize(
+      (v_model_view_matrix * vec4(color_to_light_dir, 0.0)).xyz
+    ),
+    light_color,
+    light_intensity);
+  lights[1] = Light(normalize((v_model_view_matrix * vec4(1.0, 0.0, 0.2, 0.0)).xyz),
+    vec3(1.0, 1.0, 0.5),
+    0.5);
+  lights[2] = Light(normalize((v_model_view_matrix * vec4(-1.0, 0.0, 0.2, 0.0)).xyz),
+    vec3(0.5, 1.0, 1.0),
+    0.5);
+
+  vec3 color_linear = degamma(texture2D(base_color_map, v_uv).rgb);
+
+  vec3 N = normalize(v_normal);
+  vec3 V = normalize(-P);
+  float NdV = max(dot(N,V), 0.0);
+
+  float roughness = texture2D(roughness_map, v_uv).r;
+
+  float alpha = roughness * roughness;
+  float alpha2 = alpha * alpha;
+
+  // dielectrics have an F0 between 0.0 - 0.8. 0.04 is a reasonable default
+  // it is often exposed as a parameter called "specular level."
+  // it might make sense to plug an existing specular map into this, and remap
+  // it to the 0-0.8 range.
+  vec3 F0 = vec3(specular_level, specular_level, specular_level);
+
+  // metals use their base color as their specular color.
+  F0 = mix(F0, color_linear, metalicity);
+
+  vec3 accumulated_light = vec3(0.0, 0.0, 0.0);
+
+  // ambient lighting, to fake an image based map
+  accumulated_light += color_linear * gradient(dot(N, vec3(0.0, 1.0, 0.0)) * 2.0 + 0.5);
+
+  for(int i=0; i &lt; NUM_LIGHTS; i++) {
+    vec3 L = lights[i].dir;
+    vec3 H = normalize(V+L);
+
+    float VdH = max(dot(V, H), 0.0);
+    float NdH = max(dot(N, H), 0.0);
+    float NdL = max(dot(N, L), 0.0);
+
+    float D = DistributionTerm(NdH, alpha2);
+    float Gl = GeometryTerm(roughness, L, N, H);
+    float Gv = GeometryTerm(roughness, V, N, H);
+    vec3 F = FresnelTerm(VdH, F0);
+
+    vec3 specular_contribution = F*(Gl*Gv*D)/(4.0*NdL*NdV);
+
+    // metals don't have a diffuse contribution, so turn off the diffuse color
+    // when the material is metallic
+    vec3 diffuse_color = color_linear * (1.0 - metalicity);
+
+    // energy conservation
+
+    // Substance designer uses F0 to calculate energy conservation,
+    // but I don't think that's correct.
+
+    // diffuse_color *= vec3(1.0, 1.0, 1.0) - F0;
+
+    // Better to use roughness to calculate energy conservation? Let's discuss
+    diffuse_color *= vec3(roughness, roughness, roughness);
+
+    accumulated_light += (specular_contribution + diffuse_color)
+      * NdL * lights[i].color * lights[i].intensity;
+  }
+
+  gl_FragColor = vec4(gamma(accumulated_light), 1.0);
+}
+            </div>
+        </div>
+        <!-- //shader programs -->
+
+        <div class="viewer">
+        </div>
+
+        <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+        <script src="http://threejs.org/build/three.min.js"></script>
+        <script src="js/dat.gui.min.js"></script>
+
+        <script>
+            var mouse = { pressed: false, x: 1, y: 1 };
+            var renderer;
+            var display = {
+                mesh: null,
+                material: null,
+                camera: null,
+                scene: null,
+                shaderParameters: {
+                    "t": {
+                      type: 'f',
+                      value: 0.0,
+                      hidden: true,
+                    },
+                    "roughness_map": {
+                      type: 't',
+                      value: THREE.ImageUtils.loadTexture("textures/fuse_char_Roughness.png")
+                    },
+                    "metalicity": {
+                      type: 'f',
+                      min: 0,
+                      max: 1,
+                      value: 0
+                    },
+                    "specular_level": {
+                      type: 'f',
+                      min: 0,
+                      max: 0.08,
+                      value: 0.04
+                    },
+                    "base_color_map": {
+                      type: 't',
+                      value: THREE.ImageUtils.loadTexture("textures/fuse_char_BaseColor.png")
+                    },
+                    "base_color_tint": {
+                      type: 'c',
+                      value: (new THREE.Color(0x49389B))
+                    },
+                    "light_intensity": {
+                      type: 'f',
+                      min: 0,
+                      max: 10,
+                      value: 1
+                    },
+                    "light_color": {
+                      type: 'c',
+                      value: new THREE.Color(0xFFFFFF) //(new THREE.Color(0x0064aa))
+                    },
+                    "light_direction": {
+                      type: 'c',
+                      value: (new THREE.Color(0xFFFFFF))
+                    }
+                }
+            };
+
+            function setupGui() {
+                var gui = new dat.gui.GUI();
+
+                // display parameters
+                {
+                    var displayFolder = gui.addFolder('Display');
+                    displayFolder.open();
+                    var guiParamsDisplay= {};
+                    $.each(display.shaderParameters, function(name, param) {
+                        if (param.hidden) return;
+                        if (param.type == "c") {
+                            guiParamsDisplay[name] = "#"+param.value.getHexString();
+                        } else if (param.type != "t")
+                            guiParamsDisplay[name] = param.value;
+                    });
+
+                    $.each(guiParamsDisplay, function(name, param) {
+                        if (display.shaderParameters[name].type == "c") { // color-formatted strings must be converted
+                            displayFolder.addColor(guiParamsDisplay, name).onChange(function(v) {
+                                display.shaderParameters[name].value.setHex(fromHexString(v));
+                                display.shaderParameters[name].needsUpdate = true;
+                            });
+                        } else {
+                            displayFolder.add(guiParamsDisplay, name,
+                                display.shaderParameters[name].min,
+                                display.shaderParameters[name].max).onChange(function(v) {
+                                    display.shaderParameters[name].value = v;
+                                    display.shaderParameters[name].needsUpdate = true;
+                                }
+                            );
+                        }
+                    });
+                }
+            }
+
+            function main() {
+                setupGui();
+                init();
+                animate();
+            }
+
+            function fromHexString(color) {
+                return color.replace('#', '0x');
+            }
+
+            function init() {
+                var view_width = window.innerWidth;
+                var view_height = window.innerHeight;
+
+                renderer = new THREE.WebGLRenderer();
+                renderer.setSize( view_width, view_height );
+                $(".viewer").append( renderer.domElement );
+
+                display.camera = new THREE.PerspectiveCamera( 20, view_width / view_height, 0.1, 100);
+                display.camera.position.z = 1;
+                display.scene = new THREE.Scene();
+
+                var uniforms = display.shaderParameters;
+                uniforms.ao_map = {
+                    type: 't',
+                    value: new THREE.ImageUtils.loadTexture('textures/male_AO_body.png')
+                };
+
+                uniforms.curvature_map = {
+                    type: 't',
+                    value: new THREE.ImageUtils.loadTexture('textures/male_C_body.png')
+                };
+
+                var material = new THREE.ShaderMaterial({
+                    uniforms: uniforms,
+                    vertexShader: $("#display-shader .vert")[0].textContent,
+                    fragmentShader: $("#display-shader .frag")[0].textContent
+                });
+
+                // scene
+                display.scene = new THREE.Scene();
+                display.camera = new THREE.PerspectiveCamera( 70, view_width / view_height, 1, 300 );
+                display.camera.position.z = 200;
+
+                // model
+                var sphere = new THREE.SphereGeometry(100, 64, 46);
+                sphere.computeTangents();
+                display.mesh = new THREE.Mesh(sphere, material);
+                display.scene.add(display.mesh);
+
+                $(window).resize(onWindowResize);
+                $(document).mousemove(onMouseMove);
+                $(document).mouseup(onMouseUp);
+                $(document).mousedown(onMouseDown);
+            }
+
+            function onWindowResize() {
+                var view_width = window.innerWidth;
+                var view_height = window.innerHeight;
+
+                display.camera.aspect = (view_width / view_height);
+                display.camera.updateProjectionMatrix();
+
+                renderer.setSize(view_width, view_height);
+            }
+
+            function animate() {
+                requestAnimationFrame( animate );
+
+                if (display.mesh)
+                    display.mesh.rotation.y += 0.005;
+
+                // display on screen
+                renderer.render( display.scene, display.camera );
+            }
+
+            function onMouseUp(event) {
+                mouse.pressed = false;
+                event.preventDefault();
+            }
+
+            function onMouseDown(event) {
+                mouse.pressed = true;
+                event.preventDefault();
+            }
+
+            function onMouseMove(event) {
+                event.preventDefault();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y =  1 - (event.clientY / window.innerHeight) * 2;
+            }
+
+            $(main);
+        </script>
+    </body>
+</html>
