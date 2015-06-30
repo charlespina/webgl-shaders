@@ -64,7 +64,10 @@ void main() {
 uniform vec3 base_color_constant;
 uniform sampler2D base_color_map;
 
+uniform int use_textures;
 uniform float roughness_constant;
+uniform float roughness_boost;
+uniform float roughness_gain;
 uniform sampler2D roughness_map;
 
 uniform sampler2D normal_map;
@@ -104,9 +107,21 @@ vec3 FresnelTerm(float VdH, vec3 F0) {
   return F0 + (vec3(1.0, 1.0, 1.0)-F0) * pow(2.0, (-5.55473*VdH-6.98316)*VdH);
 }
 
-float GeometryTerm(float Roughness, vec3 V, vec3 N, vec3 H) {
+// Disney's Fresnel doesn't use an approximation, but it is quite a bit higher
+// intensity than Unity's Schlick approximation
+// https://disney-animation.s3.amazonaws.com/library/s2012_pbs_disney_brdf_notes_v2.pdf
+vec3 FresnelTerm_Disney(float VdH, vec3 F0) {
+  return F0 + (vec3(1.0, 1.0, 1.0) - F0) * pow(5.0, 1.0 - VdH);
+}
+
+float GeometryTerm(float roughness, vec3 V, vec3 N, vec3 H) {
+  // remapped roughness, to be used for the geometry term calculations,
+  // per Disney [16], Unreal [3]. N.B. don't do this in IBL
+  float roughness_remapped = 0.5 + roughness/2.0;
+
   float NdV = max(0.0, dot(N,V));
-  float k = pow(Roughness + 1.0, 2.0);
+
+  float k = pow(roughness_remapped + 1.0, 2.0)/8.0;
   return NdV/((NdV)*(1.0-k)+k);
 }
 
@@ -143,6 +158,7 @@ vec3 FresnelTerm_Schlick(float VdH, vec3 F0) {
   return F0 + (vec3(1.0, 1.0, 1.0)-F0) * pow(1.0-VdH, 5.0);
 }
 
+// WebGL
 vec3 degamma(vec3 color) {
   return pow(color, vec3(2.2, 2.2, 2.2));
 }
@@ -159,36 +175,6 @@ struct Light {
 
 Light lights[NUM_LIGHTS];
 
-struct ColorStep {
-  float t;
-  vec3 color;
-};
-
-#define NUM_COLOR_STEPS 2
-ColorStep steps[NUM_COLOR_STEPS];
-
-vec3 gradient(float t) {
-  return vec3(0.1, 0.1, 0.1);
-
-  steps[0] = ColorStep(0.5, vec3(0.1, 0.1, 0.1));
-  steps[1] = ColorStep(1.0, vec3(1.0, 1.0, 1.0));
-
-  if (t < steps[0].t) {
-    return steps[0].color;
-  }
-
-  for (int i=1; i &lt; NUM_COLOR_STEPS; i++) {
-    if (t < steps[i].t) {
-      float amount = (t-steps[i-1].t) * 1.0/(steps[i].t-steps[i-1].t);
-      return smoothstep(
-        steps[i-1].color,
-        steps[i].color,
-        vec3(amount, amount, amount)
-      );
-    }
-  }
-}
-
 void main() {
   vec3 color_to_light_dir = 2.0 * light_direction - vec3(1.0, 1.0, 1.0);
   lights[0] = Light(normalize(
@@ -203,37 +189,39 @@ void main() {
     vec3(0.5, 1.0, 1.0),
     0.5);
 
-#define USE_TEXTURES
-#ifdef USE_TEXTURES
-  vec3 color_linear = degamma(texture2D(base_color_map, v_uv).rgb);
-  vec3 N = getNormal();
-  float roughness = texture2D(roughness_map, v_uv).r;
-#else
-  vec3 color_linear = degamma(base_color_constant);
-  vec3 N = normalize(v_normal);
-  float roughness = roughness_constant;
-#endif
+  vec3 base_color;
+  vec3 N;
+  float roughness;
+
+  if (use_textures == 1) {
+    base_color = degamma(texture2D(base_color_map, v_uv).rgb);
+    N = getNormal();
+    roughness = roughness_gain*texture2D(roughness_map, v_uv).r + roughness_boost;
+  } else {
+    base_color = degamma(base_color_constant);
+    N = normalize(v_normal);
+    roughness = roughness_constant;
+  }
 
   vec3 V = normalize(-P);
   float NdV = max(dot(N,V), 0.0);
 
-
-  float alpha = roughness * roughness;
+  float alpha = roughness* roughness;
   float alpha2 = alpha * alpha;
 
-  // dielectrics have an F0 between 0.0 - 0.8. 0.04 is a reasonable default
+  // dielectrics have an F0 between 0.2 - 0.5. 0.04 is a reasonable default
   // it is often exposed as a parameter called "specular level."
   // it might make sense to plug an existing specular map into this, and remap
-  // it to the 0-0.8 range.
+  // it to the 0-0.8 range, which are the bounds used by Unreal.
   vec3 F0 = vec3(specular_level, specular_level, specular_level);
 
   // metals use their base color as their specular color.
-  F0 = mix(F0, color_linear, metalicity);
+  F0 = mix(F0, base_color, metalicity);
 
   vec3 accumulated_light = vec3(0.0, 0.0, 0.0);
 
   // ambient lighting, to fake an image based map
-  accumulated_light += color_linear * gradient(dot(N, vec3(0.0, 1.0, 0.0)) * 2.0 + 0.5);
+  accumulated_light += base_color * vec3(0.1, 0.1, 0.1);
 
   for(int i=0; i &lt; NUM_LIGHTS; i++) {
     vec3 L = lights[i].dir;
@@ -248,21 +236,14 @@ void main() {
     float Gv = GeometryTerm(roughness, V, N, H);
     vec3 F = FresnelTerm(VdH, F0);
 
-    vec3 specular_contribution = F*(Gl*Gv*D)/(4.0*NdL*NdV);
+    vec3 specular_contribution = F*(Gl*Gv*D/(4.0*NdL*NdV));
 
     // metals don't have a diffuse contribution, so turn off the diffuse color
     // when the material is metallic
-    vec3 diffuse_color = color_linear * (1.0 - metalicity);
+    vec3 diffuse_color = base_color * (1.0 - metalicity);
 
-    // energy conservation
-
-    // Substance designer uses F0 to calculate energy conservation,
-    // but I don't think that's correct.
+    // use reflectance to calculate energy conservation
     diffuse_color *= vec3(1.0, 1.0, 1.0) - F0;
-
-    // Better to use roughness to calculate energy conservation? Let's discuss.
-    // One con is that it affects the color that the artist may have authored
-    //diffuse_color *= vec3(roughness, roughness, roughness);
 
     accumulated_light += (specular_contribution + diffuse_color)
       * NdL * lights[i].color * lights[i].intensity;
@@ -297,13 +278,32 @@ void main() {
                     },
                     "normal_map": {
                       type: 't',
-                      value: THREE.ImageUtils.loadTexture("textures/fuse_char_Normal.png")
+                      value: THREE.ImageUtils.loadTexture("textures/fuse_char_Normal_flippedG.png")
+                    },
+                    "use_textures": {
+                      type: 'i',
+                      value: 0,
+                      min: 0,
+                      max: 1,
+                      step: 1
                     },
                     "roughness_constant": {
                       type: 'f',
                       value: 0.5,
                       min: 0.0,
                       max: 1.0
+                    },
+                    "roughness_boost": {
+                      type: 'f',
+                      value: 0,
+                      min: 0,
+                      max: 1
+                    },
+                    "roughness_gain": {
+                      type: 'f',
+                      value: 1,
+                      min: 0,
+                      max: 2
                     },
                     "roughness_map": {
                       type: 't',
@@ -426,11 +426,24 @@ void main() {
                 display.camera.position.z = 200;
 
                 // model
-                var sphere = new THREE.SphereGeometry(100, 64, 46);
-                sphere.computeTangents();
-                display.mesh = new THREE.Mesh(sphere, material);
+                /*
+                // sphere
+                var geo = new THREE.SphereGeometry(100, 64, 46);
+                */
+
+                // torus
+                var geo = new THREE.TorusKnotGeometry( 25, 7, 100, 32 );
+
+                geo.computeTangents();
+
+
+
+
+                display.mesh = new THREE.Mesh(geo, material);
+                // display.mesh.rotation.x = 90;
                 display.scene.add(display.mesh);
 
+                // mouse, resize events
                 $(window).resize(onWindowResize);
                 $(document).mousemove(onMouseMove);
                 $(document).mouseup(onMouseUp);
@@ -438,13 +451,13 @@ void main() {
             }
 
             function onWindowResize() {
-                var view_width = window.innerWidth;
-                var view_height = window.innerHeight;
+                var viewWidth = window.innerWidth;
+                var viewHeight = window.innerHeight;
 
-                display.camera.aspect = (view_width / view_height);
+                display.camera.aspect = (viewWidth / viewHeight);
                 display.camera.updateProjectionMatrix();
 
-                renderer.setSize(view_width, view_height);
+                renderer.setSize(viewWidth, viewHeight);
             }
 
             function animate() {
